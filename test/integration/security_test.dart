@@ -1,6 +1,6 @@
 import 'dart:io';
 import 'package:test/test.dart';
-import 'package:workspace_sandbox/workspace.dart';
+import 'package:workspace_sandbox/workspace_sandbox.dart';
 import 'package:path/path.dart' as p;
 
 void main() {

@@ -1,9 +1,7 @@
-// example/cli_repl_sandboxed.dart
-
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:workspace_sandbox/workspace.dart';
+import 'package:workspace_sandbox/workspace_sandbox.dart';
 
 /// Interactive REPL that runs commands inside a secure, sandboxed workspace.
 ///

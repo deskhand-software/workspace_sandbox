@@ -1,7 +1,7 @@
 import 'dart:io';
 
 import 'package:test/test.dart';
-import 'package:workspace_sandbox/workspace.dart';
+import 'package:workspace_sandbox/workspace_sandbox.dart';
 
 void main() {
   group('Core integration', () {

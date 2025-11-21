@@ -47,7 +47,7 @@ dart pub get
 Create an ephemeral workspace in the system temp directory:
 
 ```dart
-import 'package:workspace_sandbox/workspace.dart';
+import 'package:workspace_sandbox/workspace_sandbox.dart';
 
 Future<void> main() async {
   // Secure, ephemeral workspace in the system temp directory
@@ -78,7 +78,7 @@ Future<void> main() async {
 Use an existing directory as the workspace root:
 
 ```dart
-import 'package:workspace_sandbox/workspace.dart';
+import 'package:workspace_sandbox/workspace_sandbox.dart';
 
 Future<void> main() async {
   final ws = Workspace.host('/path/to/project');
@@ -98,7 +98,7 @@ Future<void> main() async {
 ### Streaming output for long-running commands
 
 ```dart
-import 'package:workspace_sandbox/workspace.dart';
+import 'package:workspace_sandbox/workspace_sandbox.dart';
 
 Future<void> main() async {
   final ws = Workspace.secure();

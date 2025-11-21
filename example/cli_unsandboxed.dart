@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:workspace_sandbox/workspace.dart';
+import 'package:workspace_sandbox/workspace_sandbox.dart';
 
 /// Simple CLI that runs a single command inside a host workspace
 /// without sandboxing. Useful to compare behavior with the

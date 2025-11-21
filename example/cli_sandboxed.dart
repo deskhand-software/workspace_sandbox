@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:workspace_sandbox/workspace.dart';
+import 'package:workspace_sandbox/workspace_sandbox.dart';
 
 /// Simple CLI that runs a single command inside a secure, sandboxed
 /// temporary workspace. This is useful for validating that commands

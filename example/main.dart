@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:workspace_sandbox/workspace.dart';
+import 'package:workspace_sandbox/workspace_sandbox.dart';
 
 /// Simple example showing how to:
 /// - Create a secure temporary workspace
