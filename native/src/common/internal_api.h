@@ -35,8 +35,8 @@ ProcessHandle* StartProcessWindows(
   const char* command_line,
   const char* cwd,
   bool sandbox,
-  const char* id
-  // bool allow_network
+  const char* id,
+  bool allow_network
 );
 
 /// Non-blocking read helper for Windows named pipes.

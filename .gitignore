@@ -27,3 +27,24 @@ doc/api/
 
 .flutter-plugins
 .flutter-plugins-dependencies
+
+# --- Native Build Artifacts ---
+native/build/
+native/build-linux/
+native/build-windows/
+native/build-macos/
+
+# Ignore CMake generated temporary files (just in case)
+native/**/CMakeFiles/
+native/**/CMakeCache.txt
+native/**/cmake_install.cmake
+native/**/Makefile
+native/**/*.ninja
+native/**/*.so
+native/**/*.dll
+native/**/*.dylib
+native/**/*.lib
+native/**/*.exp
+native/**/*.obj
+native/**/*.o
+native/**/*.a

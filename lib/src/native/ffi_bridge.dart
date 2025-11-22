@@ -46,7 +46,7 @@ class FfiBridge {
     final options = arena<WorkspaceOptionsC>();
     options.ref.commandLine = commandLine.toNativeUtf8(allocator: arena);
     options.ref.cwd = workingDirectory.toNativeUtf8(allocator: arena);
-    options.ref.sandbox = sandbox ? 1 : 0; 
+    options.ref.sandbox = sandbox ? 1 : 0;
     options.ref.id = id.toNativeUtf8(allocator: arena);
     options.ref.allowNetwork = allowNetwork ? 1 : 0;
 

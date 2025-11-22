@@ -3,7 +3,7 @@
 #endif
 
 #include "../include/workspace_core.h"
-#include "common/internal_api.h"
+#include "../common/internal_api.h"
 
 #ifdef _WIN32
   #include <windows.h>
@@ -27,8 +27,8 @@ WORKSPACE_EXPORT ProcessHandle* workspace_start(WorkspaceOptionsC* options) {
     options->command_line,
     options->cwd,
     options->sandbox,
-    options->id
-    // options->allow_network
+    options->id,
+    options->allow_network
   );
 #else
   return StartProcessLinux(

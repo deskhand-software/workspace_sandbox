@@ -38,7 +38,6 @@ class Workspace {
     String? id,
     WorkspaceOptions? options,
   }) {
-    
     final finalId = id ?? _generateId();
     final tempDir = Directory.systemTemp.createTempSync('sandbox_${finalId}_');
 
@@ -129,7 +128,7 @@ class Workspace {
     WorkspaceOptions? options,
   }) {
     final baseOpts = options ?? _options;
-    final finalOptions = _mergeOptions(baseOpts, _isSandboxed); 
+    final finalOptions = _mergeOptions(baseOpts, _isSandboxed);
     return _impl.start(commandLine, options: finalOptions);
   }
 
