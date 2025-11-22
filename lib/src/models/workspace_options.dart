@@ -62,6 +62,11 @@ class WorkspaceOptions {
   /// may evolve over time.
   final bool sandbox;
 
+  /// If false, network access is blocked for the process.
+  /// Default is true (allow network) for compatibility.
+  /// Workspace.secure() sets this to false by default.
+  final bool allowNetwork;
+
   /// Creates a new immutable set of options for process execution.
   const WorkspaceOptions({
     this.timeout,
@@ -70,5 +75,6 @@ class WorkspaceOptions {
     this.cancellationToken,
     this.workingDirectoryOverride,
     this.sandbox = false,
+    this.allowNetwork = true,
   });
 }

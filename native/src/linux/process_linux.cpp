@@ -10,10 +10,6 @@
 #include <sstream>
 #include <string>
 
-/// Small helper to build argv-style argument vectors.
-///
-/// Owns the underlying std::string storage and returns a
-/// null-terminated array of `char*` suitable for execvp.
 class ArgBuilder {
   std::vector<std::string> storage;
 
@@ -35,35 +31,57 @@ public:
   bool empty() const { return storage.empty(); }
   size_t size() const { return storage.size(); }
 
-  /// Appends a minimal bubblewrap sandbox configuration.
-  ///
-  /// This isolates the process in new namespaces and bind-mounts
-  /// a mostly read-only filesystem with a few writable/real paths.
-  void add_bwrap_base() {
+  /// Appends a SECURE bubblewrap sandbox configuration.
+  void add_bwrap_base(bool allow_network) {
     add("bwrap");
+    
+    // 1. Aislamiento de Namespaces (PRIMERO)
     add("--unshare-all");
-    add("--share-net");
+    add("--new-session");
     add("--die-with-parent");
-    add("--cap-drop"); add("ALL");
-    add("--ro-bind"); add("/"); add("/");
-    add("--dev-bind"); add("/dev"); add("/dev");
-    add("--proc"); add("/proc");
-    add("--tmpfs"); add("/tmp");
+
+    // 2. Construcción del Filesystem desde Cero
+    
+    // Raíz vacía en RAM
+    add("--tmpfs"); add("/");
+    
+    // Montar /usr (donde viven los binarios reales)
     add("--ro-bind"); add("/usr"); add("/usr");
-    add("--ro-bind"); add("/bin"); add("/bin");
+    
+    // Crear enlaces simbólicos estándar para que /bin/cat funcione
+    // Esto es vital en sistemas modernos (merged-usr)
+    add("--symlink"); add("usr/lib"); add("/lib");
+    add("--symlink"); add("usr/lib64"); add("/lib64");
+    add("--symlink"); add("usr/bin"); add("/bin");
+    add("--symlink"); add("usr/sbin"); add("/sbin");
+    
+    // Dispositivos y Procesos
+    add("--proc"); add("/proc");
+    add("--dev"); add("/dev");
+    
+    // Tmp limpio
+    add("--tmpfs"); add("/tmp");
+    
+    // Configuración mínima de red/sistema (DNS)
+    add("--ro-bind-try"); add("/etc/resolv.conf"); add("/etc/resolv.conf");
+    add("--ro-bind-try"); add("/etc/hosts"); add("/etc/hosts");
+    add("--ro-bind-try"); add("/etc/ssl/certs"); add("/etc/ssl/certs");
+
+    // NO MONTAR /home NI NINGUNA OTRA COSA
+    
+    // 3. Privilegios y Red
+    if (allow_network) add("--share-net");
+    else add("--unshare-net");
+    
+    add("--cap-drop"); add("ALL");
   }
 };
 
-/// Sets a file descriptor to non-blocking mode.
 static void set_nonblocking(int fd) {
   int flags = fcntl(fd, F_GETFL, 0);
   if (flags != -1) fcntl(fd, F_SETFL, flags | O_NONBLOCK);
 }
 
-/// Simple command-line parser with basic quote handling.
-///
-/// Splits a single command line into argv-style parts, honoring
-/// single and double quotes and backslash escapes.
 static std::vector<std::string> parse_command_line(const char* command_line) {
   std::vector<std::string> parts;
   if (!command_line || !*command_line) return parts;
@@ -76,28 +94,23 @@ static std::vector<std::string> parse_command_line(const char* command_line) {
 
   for (size_t i = 0; i < cmd.length(); ++i) {
     char c = cmd[i];
-
     if (escape) {
       current += c;
       escape = false;
       continue;
     }
-
     if (c == '\\' && !inSingleQuote) {
       escape = true;
       continue;
     }
-
     if (c == '\'' && !inDoubleQuote) {
       inSingleQuote = !inSingleQuote;
       continue;
     }
-
     if (c == '"' && !inSingleQuote) {
       inDoubleQuote = !inDoubleQuote;
       continue;
     }
-
     if ((c == ' ' || c == '\t') && !inSingleQuote && !inDoubleQuote) {
       if (!current.empty()) {
         parts.push_back(current);
@@ -105,26 +118,20 @@ static std::vector<std::string> parse_command_line(const char* command_line) {
       }
       continue;
     }
-
     current += c;
   }
-
-  if (!current.empty()) {
-    parts.push_back(current);
-  }
-
+  if (!current.empty()) parts.push_back(current);
   return parts;
 }
 
-/// Starts a process on Linux, optionally inside a bubblewrap sandbox.
-///
-/// When [sandbox] is true, the command is executed as:
-///   bwrap <base args> [bind workspace cwd] <original argv...>
+// --- MAIN FUNCTION UPDATE ---
+
 ProcessHandle* StartProcessLinux(
   const char* command_line,
   const char* cwd,
   bool sandbox,
-  const char* id
+  const char* id,
+  bool allow_network // <--- New Argument
 ) {
   auto parsed = parse_command_line(command_line);
   if (parsed.empty()) {
@@ -134,14 +141,18 @@ ProcessHandle* StartProcessLinux(
   ArgBuilder args;
 
   if (sandbox) {
-    args.add_bwrap_base();
+    args.add_bwrap_base(allow_network);
 
     if (cwd && *cwd) {
+      // CAMBIO: Montar el cwd del host en /app dentro del sandbox
+      // Esto aísla completamente la ruta real.
+      
       args.add("--bind");
-      args.add(cwd);
-      args.add(cwd);
+      args.add(cwd);     // Origen (Host)
+      args.add("/app");  // Destino (Sandbox) - Ruta neutral
+      
       args.add("--chdir");
-      args.add(cwd);
+      args.add("/app");
     }
 
     for (const auto& part : parsed) {
@@ -214,7 +225,6 @@ ProcessHandle* StartProcessLinux(
     close(pipeExec[0]);
 
     if (readSz > 0) {
-      // execvp failed in child
       close(pipeOut[0]);
       close(pipeErr[0]);
       waitpid(pid, NULL, 0);

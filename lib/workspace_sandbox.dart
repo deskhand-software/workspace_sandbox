@@ -38,6 +38,7 @@ class Workspace {
     String? id,
     WorkspaceOptions? options,
   }) {
+    
     final finalId = id ?? _generateId();
     final tempDir = Directory.systemTemp.createTempSync('sandbox_${finalId}_');
 
@@ -110,7 +111,8 @@ class Workspace {
     String commandLine, {
     WorkspaceOptions? options,
   }) {
-    final finalOptions = _mergeOptions(options, _isSandboxed);
+    final baseOpts = options ?? _options;
+    final finalOptions = _mergeOptions(baseOpts, _isSandboxed);
     return _impl.run(commandLine, options: finalOptions);
   }
 
@@ -126,7 +128,8 @@ class Workspace {
     String commandLine, {
     WorkspaceOptions? options,
   }) {
-    final finalOptions = _mergeOptions(options, _isSandboxed);
+    final baseOpts = options ?? _options;
+    final finalOptions = _mergeOptions(baseOpts, _isSandboxed); 
     return _impl.start(commandLine, options: finalOptions);
   }
 
@@ -143,6 +146,7 @@ class Workspace {
         cancellationToken: opts.cancellationToken,
         workingDirectoryOverride: opts.workingDirectoryOverride,
         sandbox: forceSandbox,
+        allowNetwork: opts.allowNetwork,
       );
     }
     return opts;

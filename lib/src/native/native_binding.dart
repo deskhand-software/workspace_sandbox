@@ -8,13 +8,16 @@ base class ProcessHandle extends ffi.Opaque {}
 
 /// FFI representation of the options passed to the native core.
 final class WorkspaceOptionsC extends ffi.Struct {
-  external ffi.Pointer<ffi_helpers.Utf8> command_line;
+  external ffi.Pointer<ffi_helpers.Utf8> commandLine;
   external ffi.Pointer<ffi_helpers.Utf8> cwd;
 
-  @ffi.Bool()
-  external bool sandbox;
+  @ffi.Int32()
+  external int sandbox;
 
   external ffi.Pointer<ffi_helpers.Utf8> id;
+
+  @ffi.Int32()
+  external int allowNetwork;
 }
 
 // C function type signatures.

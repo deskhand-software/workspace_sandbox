@@ -12,6 +12,7 @@
   #include <sys/wait.h>
   #include <signal.h>
   #include <errno.h>
+  #include <stdio.h>
 #endif
 
 extern "C" {
@@ -27,13 +28,15 @@ WORKSPACE_EXPORT ProcessHandle* workspace_start(WorkspaceOptionsC* options) {
     options->cwd,
     options->sandbox,
     options->id
+    // options->allow_network
   );
 #else
   return StartProcessLinux(
     options->command_line,
     options->cwd,
-    options->sandbox,
-    options->id
+    options->sandbox != 0,
+    options->id,
+    options->allow_network != 0
   );
 #endif
 }

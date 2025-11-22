@@ -38,15 +38,17 @@ class FfiBridge {
     String workingDirectory,
     bool sandbox,
     String id,
+    bool allowNetwork,
     ffi_helpers.Arena arena,
   ) {
     _initFuncs();
 
     final options = arena<WorkspaceOptionsC>();
-    options.ref.command_line = commandLine.toNativeUtf8(allocator: arena);
+    options.ref.commandLine = commandLine.toNativeUtf8(allocator: arena);
     options.ref.cwd = workingDirectory.toNativeUtf8(allocator: arena);
-    options.ref.sandbox = sandbox;
+    options.ref.sandbox = sandbox ? 1 : 0; 
     options.ref.id = id.toNativeUtf8(allocator: arena);
+    options.ref.allowNetwork = allowNetwork ? 1 : 0;
 
     final result = _startFunc!(options);
     if (result.address == 0) {

@@ -74,11 +74,13 @@ class WorkspaceImpl {
     final finalCommandLine = ShellParser.prepareCommand(commandLine);
 
     try {
+            
       final handle = FfiBridge.start(
         finalCommandLine,
         workingDirectory,
         opts.sandbox,
         id,
+        opts.allowNetwork,
         arena,
       );
 

@@ -36,6 +36,7 @@ ProcessHandle* StartProcessWindows(
   const char* cwd,
   bool sandbox,
   const char* id
+  // bool allow_network
 );
 
 /// Non-blocking read helper for Windows named pipes.
@@ -52,7 +53,8 @@ ProcessHandle* StartProcessLinux(
   const char* command_line,
   const char* cwd,
   bool sandbox,
-  const char* id
+  const char* id,
+  bool allow_network
 );
 
 /// Non-blocking read helper for Unix file descriptors (stdout/stderr).
