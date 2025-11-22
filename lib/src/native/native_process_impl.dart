@@ -36,8 +36,11 @@ class NativeProcessImpl implements WorkspaceProcess {
     if (timeout != null) {
       _timeoutTimer = Timer(timeout, () {
         if (_exitCodeCompleter.isCompleted) return;
+
+        // Mark as cancelled explicitly before killing
         _isCancelled = true;
         kill();
+
         if (!_stderrCtrl.isClosed) {
           _stderrCtrl.add('\nError: process timeout exceeded.\n');
         }
@@ -55,7 +58,12 @@ class NativeProcessImpl implements WorkspaceProcess {
   Future<int> get exitCode => _exitCodeCompleter.future;
 
   @override
-  void kill() => FfiBridge.kill(_handle);
+  void kill() {
+    if (!_exitCodeCompleter.isCompleted) {
+      _isCancelled = true;
+    }
+    FfiBridge.kill(_handle);
+  }
 
   void _startPolling() {
     final buffer = ffi_helpers.calloc<ffi.Uint8>(4096);
@@ -132,6 +140,9 @@ class NativeProcessImpl implements WorkspaceProcess {
     if (!_stderrCtrl.isClosed) _stderrCtrl.close();
 
     if (!_exitCodeCompleter.isCompleted) {
+      // If manually cancelled or timed out, we might want to reflect that
+      // but we stick to the raw code unless it's confusingly 0.
+      // However, higher layers check isCancelled flag.
       _exitCodeCompleter.complete(code);
     }
   }

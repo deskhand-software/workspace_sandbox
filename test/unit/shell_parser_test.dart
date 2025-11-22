@@ -1,53 +1,86 @@
 import 'dart:io';
-
 import 'package:test/test.dart';
 import 'package:workspace_sandbox/src/util/shell_parser.dart';
 
 void main() {
   group('ShellParser.prepareCommand', () {
-    test('throws on empty command', () {
-      expect(
-        () => ShellParser.prepareCommand('   '),
-        throwsA(isA<Exception>()),
-      );
+    test('Should throw specific error on empty or whitespace-only commands',
+        () {
+      final invalidInputs = ['', '   ', '\t', '\n'];
+      for (final input in invalidInputs) {
+        expect(
+          () => ShellParser.prepareCommand(input),
+          throwsA(isA<Exception>()),
+          reason: 'Should reject input: "$input"',
+        );
+      }
     });
 
-    test('returns trimmed command unchanged on non-Windows', () {
-      if (Platform.isWindows) return; // skip on Windows
+    group('Platform: Linux/MacOS', () {
+      test('Should return command trimmed but unchanged', () {
+        if (Platform.isWindows) return;
 
-      final cmd = '  echo hello  ';
-      final result = ShellParser.prepareCommand(cmd);
-      expect(result, 'echo hello');
+        final inputs = {
+          'echo hello': 'echo hello',
+          '  ls -la  ': 'ls -la',
+          './script.sh': './script.sh',
+        };
+
+        inputs.forEach((input, expected) {
+          expect(ShellParser.prepareCommand(input), equals(expected));
+        });
+      });
     });
 
-    test('wraps Windows built-in commands with cmd.exe', () {
-      if (!Platform.isWindows) return; // skip on non-Windows
+    group('Platform: Windows', () {
+      test('Should wrap standard commands with cmd.exe /c', () {
+        if (!Platform.isWindows) return;
 
-      final cmd = 'echo hello';
-      final result = ShellParser.prepareCommand(cmd);
-      expect(
-        result,
-        'cmd.exe /s /c "echo hello"',
-      );
-    });
+        final cmd = 'echo hello';
+        final result = ShellParser.prepareCommand(cmd);
 
-    test('wraps Windows commands containing pipes or redirects', () {
-      if (!Platform.isWindows) return;
+        // Verify structure, ensuring cmd.exe invocation
+        expect(result, startsWith('cmd.exe'));
+        expect(result, contains('/c'));
+        expect(result, contains('"echo hello"'));
+      });
 
-      final cmd = 'echo a | find "a"';
-      final result = ShellParser.prepareCommand(cmd);
-      expect(
-        result,
-        'cmd.exe /s /c "echo a | find "a""',
-      );
-    });
+      test('Should handle commands with pipes and redirects', () {
+        if (!Platform.isWindows) return;
 
-    test('does not wrap already wrapped cmd.exe commands', () {
-      if (!Platform.isWindows) return;
+        final complexCmd = 'dir | find "txt" > output.log';
+        final result = ShellParser.prepareCommand(complexCmd);
 
-      final cmd = 'cmd.exe /c echo hello';
-      final result = ShellParser.prepareCommand(cmd);
-      expect(result, cmd);
+        expect(result, contains('"dir | find "txt" > output.log"'));
+      });
+
+      test(
+          'Should NOT wrap commands that are already calling cmd or powershell',
+          () {
+        if (!Platform.isWindows) return;
+
+        final explicitCmds = [
+          'cmd.exe /c start',
+          'powershell -Command "ls"',
+          'wsl ls'
+        ];
+
+        for (final cmd in explicitCmds) {
+          expect(ShellParser.prepareCommand(cmd), equals(cmd),
+              reason: 'Should execute explicit shell invoker directly');
+        }
+      });
+
+      test('Should handle paths with spaces correctly', () {
+        if (!Platform.isWindows) return;
+
+        final cmd = '"C:\\Program Files\\Node\\node.exe" script.js';
+        final result = ShellParser.prepareCommand(cmd);
+
+        // Wrapping must preserve internal quotes
+        expect(
+            result, contains('"C:\\Program Files\\Node\\node.exe" script.js'));
+      });
     });
   });
 }

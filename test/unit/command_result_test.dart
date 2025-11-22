@@ -2,36 +2,55 @@ import 'package:test/test.dart';
 import 'package:workspace_sandbox/workspace_sandbox.dart';
 
 void main() {
-  group('CommandResult', () {
-    test('isSuccess is true only when exitCode is zero', () {
-      final ok = CommandResult(
+  group('CommandResult Model', () {
+    test('isSuccess/isFailure logic', () {
+      final success = CommandResult(
         exitCode: 0,
-        stdout: 'ok',
+        stdout: '',
         stderr: '',
-        duration: Duration(milliseconds: 10),
+        duration: Duration.zero,
       );
-      final fail = CommandResult(
+      final failure = CommandResult(
         exitCode: 1,
         stdout: '',
-        stderr: 'error',
+        stderr: '',
+        duration: Duration.zero,
+      );
+      final signalKill = CommandResult(
+        exitCode: -1,
+        stdout: '',
+        stderr: '',
         duration: Duration.zero,
       );
 
-      expect(ok.isSuccess, isTrue);
-      expect(fail.isSuccess, isFalse);
+      expect(success.isSuccess, isTrue);
+      expect(success.isFailure, isFalse);
+
+      expect(failure.isSuccess, isFalse);
+      expect(failure.isFailure, isTrue);
+
+      expect(signalKill.isSuccess, isFalse);
+      expect(signalKill.isFailure, isTrue);
     });
 
-    test('toString includes exitCode and duration', () {
+    test('ToString formatting for logging', () {
       final res = CommandResult(
-        exitCode: 2,
-        stdout: '',
-        stderr: '',
-        duration: const Duration(milliseconds: 123),
+        exitCode: 127,
+        stdout: 'output',
+        stderr: 'error msg',
+        duration: const Duration(milliseconds: 500),
       );
 
-      final s = res.toString();
-      expect(s, contains('exitCode: 2'));
-      expect(s, contains('123ms'));
+      final log = res.toString();
+      expect(log, contains('exitCode: 127'));
+      expect(log, contains('500ms'));
+    });
+
+    test('Should handle null-like empty outputs gracefully', () {
+      final res = CommandResult(
+          exitCode: 0, stdout: '', stderr: '', duration: Duration.zero);
+      expect(res.stdout, isEmpty);
+      expect(res.stderr, isEmpty);
     });
   });
 }

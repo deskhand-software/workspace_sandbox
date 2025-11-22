@@ -7,87 +7,127 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.1.1] - 2025-11-22
+
+### Added
+
+**FileSystem Observability Helpers**
+- `tree(maxDepth)`: Generate visual directory tree for LLM context windows
+- `grep(pattern, recursive)`: Recursive text search with file:line output
+- `find(pattern)`: Glob-style file pattern matching
+- `readBytes()` / `writeBytes()`: Binary file I/O support
+- `copy(source, dest)` / `move(source, dest)`: File management utilities
+
+**Network Isolation Control**
+- New `allowNetwork` flag in `WorkspaceOptions` (defaults to `true`)
+- Linux: Native kernel-level network blocking via `--unshare-net` (Bubblewrap)
+- Windows: Heuristic-based `SecurityGuard` blocks known network binaries (curl, wget, ssh, npm) before execution
+- Detects and blocks Python socket usage and PowerShell network calls
+
+**Enhanced Timeout & Cancellation**
+- `isCancelled` flag in `CommandResult` reliably indicates timeout-triggered termination
+- Improved native process cleanup on timeout (SIGKILL on Linux, TerminateProcess on Windows)
+- Timeout now properly propagates cancellation state regardless of OS exit code quirks
+
+**Expanded Examples**
+- `01_basic_usage.dart`: Core workspace lifecycle demonstration
+- `02_observability.dart`: File system inspection utilities showcase
+- `03_network_isolation.dart`: Network blocking and allowing examples
+- `04_streaming_output.dart`: Real-time process output handling
+- `05_timeout_control.dart`: Timeout mechanism validation
+- `06_host_vs_secure.dart`: Persistent vs ephemeral workspace comparison
+
+### Changed
+
+**Linux Sandboxing Improvements**
+- Migrated to "Empty Root" strategy (`--tmpfs /`) for maximum isolation
+- Added `/usr/local` mount for user-installed binaries (npm, node)
+- Improved support for Merged-USR distributions (Fedora, Arch, modern Ubuntu)
+- Added standard symlinks (`/bin` -> `/usr/bin`, `/lib` -> `/usr/lib`)
+
+**API Refinements**
+- `CommandResult` now exposes `isSuccess` and `isFailure` convenience getters
+- Internal `command_line` variables renamed to `commandLine` for Dart convention compliance
+- Improved error messages with platform-specific language support (Spanish Windows errors)
+
+### Fixed
+
+- Windows: Resolved native library linker errors and C++ signature mismatches
+- Linux: Fixed NPM/Node.js detection in sandboxed environments (WSL2 compatibility)
+- Cross-platform: `ShellParser` now handles case-insensitive command detection (e.g., `CuRl`, `PoWeRsHeLl`)
+- Timeout mechanism now correctly reports cancellation state across all platforms
+- Whitespace handling in shell command parsing (quotes, pipes, redirects)
+
+### Security
+
+- Enhanced static analysis in `SecurityGuard` for obfuscated network commands
+- Improved detection of inline scripting language network usage (Python `urllib`, Node.js `require('net')`)
+- Added comprehensive penetration testing suite (`pentest_test.dart`) validating:
+  - Path traversal protection (Dart API and OS-level)
+  - Symlink attack resistance (Linux)
+  - Network exfiltration prevention (socket-level)
+  - Resource exhaustion handling (fork bomb simulation)
+
+---
+
 ## [0.1.0] - 2025-11-21
 
-### 🎉 Initial Release
+### Added
 
-First public release of `workspace_sandbox` - a cross-platform sandboxed workspace manager for running shell commands with native isolation.
+**Core Workspace API**
+- `Workspace.secure()`: Creates ephemeral temporary workspaces with automatic cleanup and native sandboxing
+- `Workspace.host(path)`: Uses existing directories as workspace roots
+- `run()`: Execute commands to completion with buffered output
+- `start()`: Long-running processes with streaming stdout/stderr
 
-### ✨ Added
+**Native Process Management**
+- FFI-based process execution for Windows x64 and Linux x64
+- Non-blocking I/O for stdout and stderr streams
+- Exit code handling and process lifecycle management
+- Process timeouts and cancellation support
 
-- **Core Workspace API**
-  - `Workspace.secure()` - Creates ephemeral temporary workspaces with automatic cleanup
-  - `Workspace.host(path)` - Uses existing directories as workspace roots
-  - `run()` method for executing commands to completion with buffered output
-  - `start()` method for long-running processes with streaming stdout/stderr
+**Sandboxing**
+- Windows: AppContainer integration for isolated process execution
+- Linux: Bubblewrap (bwrap) support with filesystem isolation
+- Configurable via `WorkspaceOptions.sandbox`
+- Automatic fallback to non-sandboxed mode when unavailable
 
-- **Native Process Management**
-  - FFI-based process execution for Windows x64 and Linux x64
-  - Non-blocking I/O for stdout and stderr streams
-  - Proper exit code handling and process lifecycle management
-  - Support for process timeouts and cancellation
+**File Operations**
+- `writeFile()`: Write text files relative to workspace root
+- `readFile()`: Read text files from workspace
+- `exists()`: Check file/directory existence
+- `createDir()`: Create directories
+- `delete()`: Remove files or directories
 
-- **Sandboxing**
-  - Windows AppContainer integration for isolated process execution
-  - Linux bubblewrap (bwrap) support with filesystem isolation
-  - Configurable sandbox mode via `WorkspaceOptions.sandbox`
-  - Automatic fallback to non-sandboxed mode when sandbox unavailable
+**Configuration**
+- Configurable timeouts for command execution
+- Custom environment variables
+- Working directory overrides
+- Parent environment inheritance control
 
-- **File Operations**
-  - `writeFile()` - Write text files relative to workspace root
-  - `readFile()` - Read text files from workspace
-  - `exists()` - Check file/directory existence
-  - `createDir()` - Create directories
-  - `delete()` - Delete files or directories
+**Testing & Quality**
+- Integration tests for process execution
+- Concurrency and stress tests (10+ concurrent workspaces)
+- Security validation tests
+- Streaming output tests
+- Unit tests for command result and shell parsing
+- Cross-platform coverage (Windows & Linux)
 
-- **Configuration Options**
-  - Configurable timeouts for command execution
-  - Custom environment variables
-  - Working directory overrides
-  - Parent environment inheritance control
-
-- **Testing & Quality**
-  - Comprehensive integration tests for process execution
-  - Concurrency and stress tests (10+ concurrent workspaces)
-  - Security validation tests for sandbox behavior
-  - Streaming output tests
-  - Unit tests for command result parsing and shell parsing
-  - Cross-platform test coverage (Windows & Linux)
-
-### 🏗️ Technical Details
+### Technical Details
 
 - Built with `dart:ffi` for native C++ interop
-- Native core written in C++ with platform-specific implementations
-- CMake-based build system for native libraries
-- Prebuilt binaries included for Windows x64 and Linux x64
+- Native core in C++ with platform-specific implementations
+- CMake-based build system
+- Prebuilt binaries for Windows x64 and Linux x64
 
-### 📝 Documentation
+### Documentation
 
-- Comprehensive README with examples and API documentation
-- Inline API documentation for all public classes and methods
+- Comprehensive README with examples and API docs
+- Inline documentation for all public APIs
 - Security notes and best practices for AI agent use cases
 - Platform support matrix and known limitations
 
-### 🔒 Security
-
-- Optional native sandboxing on Windows (AppContainer) and Linux (bubblewrap)
-- Process isolation to prevent escape from workspace root
-- Timeout enforcement to prevent runaway processes
-- Clear security guidance for AI agent developers
-
 ---
 
-## [Unreleased]
-
-### Planned Features
-
-- macOS support (darwin x64 and arm64)
-- ARM architecture support for Linux and Windows
-- Enhanced sandbox capabilities (network isolation, resource limits)
-- Interactive TTY support for certain command types
-- Process signal handling (SIGINT, SIGTERM)
-- Windows Job Object integration for better resource management
-
----
-
+[0.1.1]: https://github.com/deskhand-software/workspace_sandbox/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/deskhand-software/workspace_sandbox/releases/tag/v0.1.0

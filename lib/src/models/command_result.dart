@@ -36,6 +36,9 @@ class CommandResult {
   /// Convenience flag indicating whether [exitCode] equals `0`.
   bool get isSuccess => exitCode == 0;
 
+  /// Convenience flag indicating whether [exitCode] is NOT `0`.
+  bool get isFailure => exitCode != 0;
+
   @override
   String toString() {
     return 'CommandResult('

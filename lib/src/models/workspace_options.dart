@@ -8,6 +8,9 @@ class CancellationToken {
   final _controller = StreamController<void>.broadcast();
   bool _isCancelled = false;
 
+  /// Creates a new token that is initially not cancelled.
+  CancellationToken();
+
   /// Whether [cancel] has already been requested.
   bool get isCancelled => _isCancelled;
 
@@ -15,6 +18,8 @@ class CancellationToken {
   Stream<void> get onCancel => _controller.stream;
 
   /// Requests cancellation for any operation that is listening to [onCancel].
+  ///
+  /// Calling this method multiple times has no effect after the first call.
   void cancel() {
     if (_isCancelled) return;
     _isCancelled = true;
@@ -26,23 +31,25 @@ class CancellationToken {
 /// Configuration options for running a command inside a workspace.
 ///
 /// These options control environment variables, working directory,
-/// timeouts and optional sandboxing.
+/// timeouts and optional native sandboxing features.
 class WorkspaceOptions {
   /// Maximum execution time before the process is killed.
   ///
-  /// If `null`, no timeout is enforced by the library.
+  /// If `null`, no timeout is enforced by the library, and the process
+  /// will run until it completes or is cancelled manually.
   final Duration? timeout;
 
   /// Additional environment variables to inject into the process.
   ///
-  /// When [includeParentEnv] is `true`, these are merged on top of the
-  /// host process environment.
+  /// When [includeParentEnv] is `true`, these variables are merged on top of
+  /// the host process environment. If a key conflicts, the value in this map
+  /// takes precedence.
   final Map<String, String> env;
 
   /// Whether to inherit the parent process environment variables.
   ///
-  /// When `true`, [env] extends the existing environment instead of
-  /// replacing it.
+  /// When `true` (default), [env] extends the existing environment.
+  /// When `false`, the process starts with a minimal environment (plus [env]).
   final bool includeParentEnv;
 
   /// Optional cooperative cancellation token.
@@ -53,18 +60,27 @@ class WorkspaceOptions {
 
   /// Optional working directory override.
   ///
-  /// When `null`, the workspace root directory is used as the cwd.
+  /// Must be a relative path to the workspace root. If `null`, the workspace
+  /// root directory is used as the current working directory.
   final String? workingDirectoryOverride;
 
   /// Indicates whether this execution should be sandboxed.
   ///
-  /// The exact semantics are defined by the native implementation and
-  /// may evolve over time.
+  /// When `true`, the library attempts to use native OS isolation mechanisms:
+  /// - **Linux**: Uses `bubblewrap` (bwrap) to create a container with restricted
+  ///   filesystem access and namespaces.
+  /// - **Windows**: Uses `AppContainer` to restrict tokens and capabilities.
+  ///
+  /// Defaults to `false`.
   final bool sandbox;
 
-  /// If false, network access is blocked for the process.
-  /// Default is true (allow network) for compatibility.
-  /// Workspace.secure() sets this to false by default.
+  /// Controls network access for the sandboxed process.
+  ///
+  /// - `true` (default): The process can access the network.
+  /// - `false`: The process runs in an offline namespace (Linux) or with
+  ///   network capabilities stripped (Windows).
+  ///
+  /// Note: This option is only effective when [sandbox] is `true`.
   final bool allowNetwork;
 
   /// Creates a new immutable set of options for process execution.

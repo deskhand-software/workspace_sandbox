@@ -3,33 +3,31 @@
 [![pub package](https://img.shields.io/pub/v/workspace_sandbox.svg)](https://pub.dev/packages/workspace_sandbox)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
-A cross-platform workspace abstraction for running shell commands in a contained directory, with streaming stdout/stderr, timeouts and optional native sandboxing (AppContainer on Windows, bubblewrap on Linux).
+A cross-platform workspace abstraction for running shell commands in isolated directories with native sandboxing, network control, and real-time process streaming.
 
-This package is designed for **local AI agents**, **automation tools** and **CLIs** that need to execute arbitrary commands while keeping them scoped to a workspace root with strong isolation guarantees.
-
----
-
-## 🎯 Features
-
-- **Isolated workspace roots** – Host-based or ephemeral temporary workspaces
-- **Streaming output** – Access stdout and stderr as Dart `Stream<String>`
-- **Timeouts & cancellation** – Kill long-running processes automatically
-- **Native process management** – Uses `dart:ffi` for direct OS integration (Windows, Linux x64)
-- **Optional sandboxing**:
-  - **Windows**: Runs processes inside an AppContainer with restricted tokens
-  - **Linux**: Wraps processes in `bwrap` (bubblewrap) with filesystem isolation
-- **Simple, tested API** – Works in both Dart CLI and Flutter applications
-- **File helpers** – Read, write, delete files scoped to the workspace root
+Designed for **AI agents**, **automation tools**, and **build systems** that need to execute arbitrary commands with strong isolation guarantees and file system observability.
 
 ---
 
-## 📦 Installation
+## Features
 
-Add this package to your `pubspec.yaml`:
+- **Isolated workspaces** – Ephemeral or persistent directory roots with automatic cleanup
+- **Native sandboxing** – AppContainer (Windows) and Bubblewrap (Linux) for OS-level isolation
+- **Network control** – Block or allow network access per workspace
+- **Streaming output** – Real-time stdout/stderr via Dart streams
+- **Timeout & cancellation** – Automatic process termination with configurable timeouts
+- **File system helpers** – Tree visualization, recursive grep, glob search, binary I/O
+- **Simple API** – Write commands as you would in a terminal, no complex process management
+
+---
+
+## Installation
+
+Add to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  workspace_sandbox: ^0.1.0
+  workspace_sandbox: ^0.1.1
 ```
 
 Then run:
@@ -40,281 +38,350 @@ dart pub get
 
 ---
 
-## 🚀 Quick Start
+## Quick Start
 
-### Secure, temporary workspace
-
-Create an ephemeral workspace in the system temp directory:
+### Basic Usage
 
 ```dart
 import 'package:workspace_sandbox/workspace_sandbox.dart';
 
-Future<void> main() async {
-  // Secure, ephemeral workspace in the system temp directory
+void main() async {
   final ws = Workspace.secure();
-
-  // Write a file inside the workspace root
-  await ws.writeFile('hello.txt', 'Hello from workspace!');
-
-  // Run a simple command that reads the file
-  final result = await ws.run(
-    'cat hello.txt',
-    options: const WorkspaceOptions(
-      timeout: Duration(seconds: 5),
-    ),
-  );
-
-  print('exitCode: ${result.exitCode}');
-  print('stdout: ${result.stdout}');
-  print('stderr: ${result.stderr}');
-
-  // Cleanup (deletes temp directory)
+  
+  await ws.writeFile('script.sh', 'echo "Hello World"');
+  
+  final result = await ws.run('sh script.sh');
+  print(result.stdout); // Hello World
+  
   await ws.dispose();
 }
 ```
 
-### Host workspace
-
-Use an existing directory as the workspace root:
+### With Network Isolation
 
 ```dart
-import 'package:workspace_sandbox/workspace_sandbox.dart';
+final ws = Workspace.secure(
+  options: const WorkspaceOptions(
+    sandbox: true,
+    allowNetwork: false, // Block all network access
+  ),
+);
 
-Future<void> main() async {
-  final ws = Workspace.host('/path/to/project');
-
-  final result = await ws.run('git status');
-
-  if (result.isSuccess) {
-    print(result.stdout);
-  } else {
-    print('Command failed: ${result.stderr}');
-  }
-
-  await ws.dispose();
-}
+// This will fail with network unreachable
+await ws.run('ping google.com');
 ```
 
-### Streaming output for long-running commands
+### Streaming Long-Running Processes
 
 ```dart
-import 'package:workspace_sandbox/workspace_sandbox.dart';
+final ws = Workspace.secure();
 
-Future<void> main() async {
-  final ws = Workspace.secure();
+final process = await ws.start('npm install');
 
-  final process = await ws.start('npm install');
+process.stdout.listen((line) => print('[NPM] $line'));
+process.stderr.listen((line) => print('[ERR] $line'));
 
-  // Listen to stdout in real-time
-  process.stdout.listen((line) {
-    print('[OUT] $line');
-  });
+final exitCode = await process.exitCode;
+print('Installation complete: $exitCode');
 
-  // Listen to stderr in real-time
-  process.stderr.listen((line) {
-    print('[ERR] $line');
-  });
-
-  // Wait for process to complete
-  final exitCode = await process.exitCode;
-  print('Process exited with code: $exitCode');
-
-  await ws.dispose();
-}
+await ws.dispose();
 ```
 
 ---
 
-## 📚 API Overview
+## API Reference
 
-### `Workspace`
+### Workspace
 
-The main entry point for creating and managing workspaces.
+Primary interface for creating and managing isolated execution environments.
 
-#### Static constructors
+#### Constructors
 
-- **`Workspace.secure({ String? id, WorkspaceOptions? options })`**  
-  Creates a temporary, ephemeral workspace rooted in the system temp directory. Files and directories are automatically deleted when `dispose()` is called.
+**`Workspace.secure({ String? id, WorkspaceOptions? options })`**
 
-- **`Workspace.host(String path, { String? id, WorkspaceOptions? options })`**  
-  Uses or creates a host directory at `path` as the workspace root. Files persist after `dispose()`.
+Creates an ephemeral workspace in the system temp directory with sandboxing enabled by default. Automatically deleted on `dispose()`.
 
-#### Methods
+**`Workspace.host(String path, { String? id, WorkspaceOptions? options })`**
 
-- **`Future<CommandResult> run(String commandLine, { WorkspaceOptions? options })`**  
-  Runs a command to completion and returns a buffered `CommandResult` with stdout, stderr, exitCode and duration.
+Uses an existing directory as the workspace root. Files persist after `dispose()`. Sandboxing is optional.
 
-- **`Future<WorkspaceProcess> start(String commandLine, { WorkspaceOptions? options })`**  
-  Starts a long-running process and returns a `WorkspaceProcess` with `stdout`, `stderr` streams and an `exitCode` future for real-time output.
+#### Core Methods
 
-- **File helpers** (all paths are relative to workspace root):
-  - `Future<void> writeFile(String relativePath, String content)`
-  - `Future<String> readFile(String relativePath)`
-  - `Future<bool> exists(String relativePath)`
-  - `Future<void> createDir(String relativePath)`
-  - `Future<void> delete(String relativePath)`
+**`Future<CommandResult> run(String commandLine, { WorkspaceOptions? options })`**
 
-- **`Future<void> dispose()`**  
-  Cleans up resources. For ephemeral workspaces, deletes the temp directory.
+Execute a command to completion. Returns buffered stdout/stderr and exit code.
+
+```dart
+final result = await ws.run('python script.py');
+if (result.isSuccess) {
+  print(result.stdout);
+}
+```
+
+**`Future<WorkspaceProcess> start(String commandLine, { WorkspaceOptions? options })`**
+
+Start a long-running process with streaming output.
+
+```dart
+final proc = await ws.start('tail -f log.txt');
+proc.stdout.listen(print);
+```
+
+#### File Operations
+
+All paths are relative to workspace root.
+
+- `Future<void> writeFile(String path, String content)`
+- `Future<String> readFile(String path)`
+- `Future<void> writeBytes(String path, List<int> bytes)`
+- `Future<List<int>> readBytes(String path)`
+- `Future<bool> exists(String path)`
+- `Future<void> createDir(String path)`
+- `Future<void> delete(String path)`
+- `Future<void> copy(String source, String dest)`
+- `Future<void> move(String source, String dest)`
+
+#### Observability Helpers
+
+**`Future<String> tree({ int maxDepth = 10 })`**
+
+Generate a visual directory tree.
+
+```dart
+final tree = await ws.tree();
+print(tree);
+// workspace_root
+// ├── src
+// │   └── main.dart
+// └── README.md
+```
+
+**`Future<String> grep(String pattern, { bool recursive = true })`**
+
+Search for text patterns in files.
+
+```dart
+final results = await ws.grep('TODO');
+// src/utils.dart:42: // TODO: implement
+```
+
+**`Future<List<String>> find(String pattern)`**
+
+Find files matching a glob pattern.
+
+```dart
+final dartFiles = await ws.find('*.dart');
+// ['src/main.dart', 'lib/utils.dart']
+```
 
 ---
 
-### `WorkspaceOptions`
+### WorkspaceOptions
 
-Configuration object for customizing command execution behavior.
+Configuration for command execution behavior.
+
+```dart
+const WorkspaceOptions({
+  Duration? timeout,
+  Map<String, String>? env,
+  bool includeParentEnv = true,
+  String? workingDirectoryOverride,
+  bool sandbox = false,
+  bool allowNetwork = true, // New in v0.1.1
+})
+```
 
 **Fields:**
 
-- **`Duration? timeout`** – Optional timeout; process is killed after this duration
-- **`Map<String, String>? env`** – Additional environment variables for the process
-- **`bool includeParentEnv`** – Whether to inherit the parent process environment (default: `true`)
-- **`String? workingDirectoryOverride`** – Custom working directory inside the workspace (default: workspace root)
-- **`bool sandbox`** – Whether to request native OS-level sandboxing (default: `false`)
+- **`timeout`** – Kill process after duration
+- **`env`** – Additional environment variables
+- **`includeParentEnv`** – Inherit parent process environment
+- **`workingDirectoryOverride`** – Custom working directory
+- **`sandbox`** – Enable native OS sandboxing
+- **`allowNetwork`** – Allow network access (requires `sandbox: true` for enforcement)
 
 **Example:**
 
 ```dart
 final result = await ws.run(
-  'python script.py',
-  options: WorkspaceOptions(
-    timeout: Duration(minutes: 5),
-    env: {'PYTHONPATH': '/custom/path'},
+  'python train.py',
+  options: const WorkspaceOptions(
+    timeout: Duration(hours: 2),
+    env: {'CUDA_VISIBLE_DEVICES': '0'},
     sandbox: true,
+    allowNetwork: false,
   ),
 );
 ```
 
 ---
 
-### `CommandResult`
+### CommandResult
 
-The result of a completed command (returned by `Workspace.run()`).
+Result of a completed command.
 
 **Fields:**
 
-- **`int exitCode`** – Process exit code (0 typically means success)
-- **`String stdout`** – Captured stdout text
-- **`String stderr`** – Captured stderr text
-- **`Duration duration`** – Total execution time
-- **`bool isCancelled`** – `true` if the process was killed due to timeout or explicit cancellation
+- `int exitCode`
+- `String stdout`
+- `String stderr`
+- `Duration duration`
+- `bool isCancelled`
 
-**Convenience getters:**
+**Getters:**
 
-- **`bool get isSuccess`** – Returns `exitCode == 0`
-- **`bool get isFailure`** – Returns `exitCode != 0`
+- `bool isSuccess` – Returns `exitCode == 0`
+- `bool isFailure` – Returns `exitCode != 0`
 
 ---
 
-### `WorkspaceProcess`
+### WorkspaceProcess
 
-A handle to a running process (returned by `Workspace.start()`).
+Handle to a running process.
 
-**Fields:**
+**Streams:**
 
-- **`Stream<String> stdout`** – Real-time stdout stream (line-by-line)
-- **`Stream<String> stderr`** – Real-time stderr stream (line-by-line)
-- **`Future<int> exitCode`** – Completes when the process terminates with the exit code
+- `Stream<String> stdout`
+- `Stream<String> stderr`
+
+**Future:**
+
+- `Future<int> exitCode`
 
 **Methods:**
 
-- **`Future<void> kill()`** – Terminates the process immediately
+- `void kill()` – Terminate process immediately
 
 ---
 
-## 🔒 Sandbox Behavior
+## Security & Sandboxing
 
-When `WorkspaceOptions.sandbox` is set to `true` (or when using `Workspace.secure()`, which enforces sandboxing internally), the native core attempts to isolate the process at the OS level:
+### Isolation Mechanisms
+
+**Windows (x64)**
+
+Processes run in an **AppContainer** with:
+- Restricted filesystem access
+- No network access by default (unless `allowNetwork: true`)
+- Isolated from parent process privileges
+
+**Linux (x64)**
+
+Processes run under **Bubblewrap** with:
+- Empty root strategy (`--tmpfs /`)
+- Read-only system mounts (`/usr`, `/bin`, `/lib`)
+- Network namespace isolation (`--unshare-net` when `allowNetwork: false`)
+- Workspace root bind-mounted to `/app`
+
+### Network Control
+
+Set `allowNetwork: false` to block all network access:
+
+```dart
+final ws = Workspace.secure(
+  options: const WorkspaceOptions(
+    sandbox: true,
+    allowNetwork: false,
+  ),
+);
+
+// Blocked at kernel level (Linux) or capability level (Windows)
+await ws.run('curl https://example.com'); // Fails
+```
+
+**Additional Security Layer:**
+
+`SecurityGuard` statically analyzes commands before execution to block:
+- Network binaries (curl, wget, ssh, nc)
+- PowerShell network calls (`Net.Sockets`, `WebRequest`)
+- Python network usage (`socket`, `urllib`, `http.client`)
+- Node.js network modules (`require('net')`, `require('http')`)
+
+### Best Practices
+
+1. Always enable sandboxing for untrusted code
+2. Use `allowNetwork: false` unless network is explicitly required
+3. Set aggressive timeouts for AI-generated commands
+4. Validate command strings before execution
+5. Use `Workspace.secure()` for ephemeral, isolated environments
+
+---
+
+## Platform Support
+
+| Platform | Architecture | Sandboxing | Network Isolation |
+|----------|-------------|------------|-------------------|
+| Windows  | x64         | AppContainer | Heuristic blocking |
+| Linux    | x64         | Bubblewrap | Kernel-level (`--unshare-net`) |
+| macOS    | –           | Not supported | – |
+
+---
+
+## Requirements
+
+### Linux
+
+**Bubblewrap** must be installed for sandboxing:
+
+```bash
+# Ubuntu/Debian
+sudo apt install bubblewrap
+
+# Fedora/RHEL
+sudo dnf install bubblewrap
+
+# Arch
+sudo pacman -S bubblewrap
+```
+
+**Node.js/NPM** (if using in examples):
+
+```bash
+sudo apt install nodejs npm
+```
 
 ### Windows
 
-The process is launched inside a **Windows AppContainer** using a restricted token derived from the current process. This provides:
-
-- Limited filesystem access
-- No network access by default
-- Isolated from the parent process's privileges
-
-### Linux (x64)
-
-The process is launched under **`bwrap` (bubblewrap)** with the following isolation:
-
-- **New namespaces** (`--unshare-all`, `--die-with-parent`)
-- **Read-only bindings** for `/`, `/usr`, `/bin`
-- **Real `/dev` and `/proc`** for basic functionality
-- **`tmpfs` at `/tmp`** for temporary writes
-- **Workspace root bind-mounted** and set as the working directory (for `Workspace.host`)
-
-### Fallback
-
-If sandboxing is not supported (e.g., `bwrap` not installed on Linux), the core automatically falls back to a non-sandboxed execution model for that command.
-
-> ⚠️ **Security Note**: Always validate and constrain which commands you allow your agents to run on top of this API. Sandboxing provides defense-in-depth but is not a replacement for proper input validation and command allowlisting.
+No additional dependencies. AppContainer is part of Windows 8+.
 
 ---
 
-## 🖥️ Platform Support
+## Examples
 
-| Platform | Architecture | Status           |
-|---------|--------------|------------------|
-| Windows | x64          | ✅ Supported     |
-| Linux   | x64          | ✅ Supported     |
-| macOS   | –            | ❌ Not supported yet |
+See the `example/` directory for comprehensive usage demonstrations:
 
-Support for additional platforms (including macOS and ARM architectures) may be added in future versions.
+- `01_basic_usage.dart` – Core workspace lifecycle
+- `02_observability.dart` – File system inspection (tree, grep, find)
+- `03_network_isolation.dart` – Network blocking and allowing
+- `04_streaming_output.dart` – Real-time process output handling
+- `05_timeout_control.dart` – Timeout and cancellation
+- `06_host_vs_secure.dart` – Persistent vs ephemeral workspaces
 
----
-
-## ⚠️ Limitations
-
-- **Prebuilt binaries only for Windows x64 and Linux x64**  
-  Other platforms are not currently supported.
-
-- **No interactive TTY support**  
-  Commands that require interactive input (e.g., text editors, interactive shells) are not supported out-of-the-box.
-
-- **Linux sandboxing requires bubblewrap**  
-  The `bwrap` binary must be installed on Linux for sandboxing to work. Install it via:
-  ```bash
-  # Ubuntu/Debian
-  sudo apt install bubblewrap
-  
-  # Fedora/RHEL
-  sudo dnf install bubblewrap
-  
-  # Arch
-  sudo pacman -S bubblewrap
-  ```
-
----
-
-## 🤝 Contributing
-
-Contributions, bug reports and feature requests are welcome!
-
-- **File issues**: [GitHub Issues](https://github.com/deskhand-software/workspace_sandbox/issues)
-- **Submit PRs**: Please ensure your changes pass the following checks before submitting:
+Run any example:
 
 ```bash
-dart format lib test
-dart analyze
-dart test
+dart run example/01_basic_usage.dart
 ```
 
-Also ensure that the native library still builds successfully on both Windows and Linux.
+---
 
-### Building the native library
+## Building Native Library
 
-If you need to rebuild the native FFI library:
+If modifying the C++ core, rebuild the native library:
 
-**Linux:**
+### Linux
+
 ```bash
 cd native
 mkdir -p build-linux && cd build-linux
 cmake ..
 cmake --build . --config Release
 cp libworkspace_core.so ../bin/linux/x64/
+cd ../..
 ```
 
-**Windows:**
+### Windows
+
 ```powershell
 cd native
 New-Item -ItemType Directory -Path build-windows -Force
@@ -322,27 +389,43 @@ cd build-windows
 cmake .. -A x64
 cmake --build . --config Release
 Copy-Item .\Release\workspace_core.dll ..\bin\windows\x64\
+cd ..\..
 ```
 
 ---
 
-## 📄 License
+## Contributing
 
-This project is licensed under the **Apache-2.0 License**.  
-See the [LICENSE](LICENSE) file for details.
+Contributions are welcome. Before submitting:
+
+```bash
+dart format lib test example
+dart analyze
+dart test
+```
+
+Ensure native library builds successfully on target platforms.
+
+**Issues & PRs:** [GitHub Repository](https://github.com/deskhand-software/workspace_sandbox)
 
 ---
 
-## 🙏 Acknowledgments
+## License
 
-- Built with [dart:ffi](https://dart.dev/guides/libraries/c-interop) for native interop
-- Sandboxing powered by Windows AppContainer and Linux bubblewrap
-- Designed for AI agents and automation workflows
+Apache-2.0 License. See [LICENSE](LICENSE) for details.
 
 ---
 
-## 📞 Support
+## Acknowledgments
 
-- **Documentation**: [pub.dev/packages/workspace_sandbox](https://pub.dev/packages/workspace_sandbox)
-- **Issues**: [GitHub Issues](https://github.com/deskhand-software/workspace_sandbox/issues)
-- **Organization**: [DeskHand Software](https://deskhand.dev)
+- Built with [dart:ffi](https://dart.dev/guides/libraries/c-interop)
+- Sandboxing: Windows AppContainer & Linux Bubblewrap
+- Designed for AI agent safety and build automation
+
+---
+
+## Links
+
+- **Documentation:** [pub.dev/packages/workspace_sandbox](https://pub.dev/packages/workspace_sandbox)
+- **Issues:** [GitHub Issues](https://github.com/deskhand-software/workspace_sandbox/issues)
+- **Organization:** [DeskHand Software](https://deskhand.dev)
