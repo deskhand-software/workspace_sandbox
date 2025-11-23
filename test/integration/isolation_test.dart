@@ -4,44 +4,35 @@ import 'package:workspace_sandbox/workspace_sandbox.dart';
 
 void main() {
   group('Sandbox Isolation', () {
-    test('Network: Should BLOCK access when allowNetwork: false', () async {
-      final ws = Workspace.secure(
-        options: const WorkspaceOptions(sandbox: true, allowNetwork: false),
+    test('Network: Should BLOCK when disabled', () async {
+      final ws = Workspace.ephemeral(
+        options: const WorkspaceOptions(allowNetwork: false),
       );
 
       try {
-        final cmd = Platform.isWindows
-            ? 'curl --connect-timeout 2 https://google.com'
-            : 'curl --connect-timeout 2 https://google.com';
-
+        final cmd = 'curl --connect-timeout 2 https://google.com';
         final result = await ws.run(cmd);
 
-        // Curl exit code != 0 implies failure (good)
         if (result.exitCode == 0) {
-          fail('Network was accessible! Output: ${result.stdout}');
+          fail('Network was accessible!');
         }
       } finally {
         await ws.dispose();
       }
     });
 
-    test('Network: Should ALLOW access when allowNetwork: true', () async {
-      final ws = Workspace.secure(
-        options: const WorkspaceOptions(sandbox: true, allowNetwork: true),
+    test('Network: Should ALLOW when enabled', () async {
+      final ws = Workspace.ephemeral(
+        options: const WorkspaceOptions(allowNetwork: true),
       );
 
       try {
-        final cmd = Platform.isWindows
-            ? 'curl -I https://google.com'
-            : 'curl -I https://google.com';
-
+        final cmd = 'curl -I https://google.com';
         final result = await ws.run(cmd);
 
         if (result.exitCode != 0) {
-          print(
-              'Warning: Network allowed but connection failed (DNS/Internet issues?)');
-          print(result.stderr);
-          return; // Don't fail test if host has no internet
+          print('Warning: Network enabled but connection failed');
+          print('Stderr: ${result.stderr}');
         }
         expect(result.exitCode, 0);
       } finally {
@@ -49,21 +40,27 @@ void main() {
       }
     });
 
-    test('Filesystem: Should not allow listing of host Root', () async {
-      if (Platform.isWindows) return;
-
-      final ws =
-          Workspace.secure(options: const WorkspaceOptions(sandbox: true));
+    test('Filesystem: Should block private files', () async {
+      final ws = Workspace.ephemeral();
       try {
-        // In Bubblewrap with empty root, /home shouldn't exist or be empty
-        // unless explicitly mounted.
-        final result = await ws.run('ls /home');
-        // We assume the user running the test has a /home folder.
-        // If the sandbox works, we shouldn't see the user's folder.
+        final userDir = Platform.environment['HOME'] ?? '/home';
+        final userName = Platform.environment['USER'] ?? 'unknown';
 
-        final currentUser = Platform.environment['USER'] ?? 'unknown';
-        if (result.stdout.contains(currentUser)) {
-          fail('Sandbox Leak: Found current user folder in /home');
+        final checkDir = await ws.run('ls -d $userDir/$userName');
+        if (checkDir.exitCode != 0) {
+          print('Note: User directory not visible (strict sandbox)');
+        }
+
+        final sensitiveFile = '$userDir/$userName/.bash_history';
+        final tryRead = await ws.run('cat $sensitiveFile');
+
+        if (tryRead.exitCode == 0 && tryRead.stdout.isNotEmpty) {
+          fail('CRITICAL: Read access to host sensitive file!');
+        }
+
+        final trySsh = await ws.run('ls $userDir/$userName/.ssh');
+        if (trySsh.exitCode == 0) {
+          fail('SECURITY LEAK: .ssh folder visible!');
         }
       } finally {
         await ws.dispose();

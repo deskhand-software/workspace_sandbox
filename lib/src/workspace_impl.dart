@@ -1,62 +1,189 @@
 import 'dart:async';
-import 'package:ffi/ffi.dart' as ffi_helpers;
+import 'package:workspace_sandbox/src/models/workspace_process.dart';
+import 'package:workspace_sandbox/src/native/native_process_impl.dart';
 
 import 'models/command_result.dart';
 import 'models/workspace_options.dart';
-import 'models/workspace_process.dart';
-import 'native/ffi_bridge.dart';
-import 'native/native_process_impl.dart';
-import 'security/security_guard.dart';
-import 'util/shell_parser.dart';
+import 'models/workspace_event.dart';
+import 'core/launcher_service.dart';
+import 'fs/file_system_service.dart';
 
-/// Internal implementation that bridges [Workspace] to the native core.
+/// Internal implementation of the workspace logic.
 ///
-/// This class is responsible for orchestrating the security checks and
-/// initiating native processes via FFI. It effectively hides the complexity
-/// of resource management (Arenas, pointers) from the public API.
+/// Coordinates between the launcher service (for process execution) and
+/// the file system service (for file operations), and manages the central
+/// event bus for reactive logging.
+///
+/// This class is not part of the public API.
 class WorkspaceImpl {
-  final String rootPath;
+  /// Unique identifier for this workspace instance.
   final String id;
-  final WorkspaceOptions _defaultOptions;
 
-  WorkspaceImpl(
-    this.rootPath,
-    this.id, {
-    WorkspaceOptions? options,
-  }) : _defaultOptions = options ?? const WorkspaceOptions();
+  /// Default options applied to all commands unless overridden.
+  final WorkspaceOptions defaultOptions;
 
-  /// Runs [commandLine] to completion and returns an aggregated [CommandResult].
+  late final LauncherService _launcher;
+
+  /// File system service for managing workspace files.
+  final FileSystemService fs;
+
+  /// Central event bus for broadcasting workspace events.
+  final _eventController = StreamController<WorkspaceEvent>.broadcast();
+
+  /// Stream of all events happening in this workspace.
+  Stream<WorkspaceEvent> get onEvent => _eventController.stream;
+
+  /// Creates a new workspace implementation.
   ///
-  /// Captures both stdout and stderr into memory. For long-running processes
-  /// or large outputs, consider using [start] to stream data instead.
-  Future<CommandResult> run(
-    String commandLine, {
-    WorkspaceOptions? options,
-  }) async {
-    WorkspaceProcess process;
-    try {
-      process = await start(commandLine, options: options);
-    } catch (e) {
-      return CommandResult(
-        exitCode: -1,
-        stdout: '',
-        stderr: 'Failed to start process: $e',
-        duration: Duration.zero,
-      );
+  /// Parameters:
+  /// - [rootPath]: Absolute path to the workspace root
+  /// - [id]: Unique identifier for logging
+  /// - [options]: Default configuration for all operations
+  WorkspaceImpl(String rootPath, this.id, {WorkspaceOptions? options})
+      : defaultOptions = options ?? const WorkspaceOptions(),
+        fs = FileSystemService(rootPath) {
+    _launcher = LauncherService(rootPath, id);
+  }
+
+  /// Absolute path to the workspace root directory.
+  String get rootPath => fs.rootPath;
+
+  /// Disposes resources and closes the event stream.
+  Future<void> dispose() async {
+    await _eventController.close();
+  }
+
+  /// Executes a shell command and waits for completion.
+  ///
+  /// Internally uses [start] to connect to the event bus, then collects
+  /// the full output.
+  Future<CommandResult> run(String shellCommand,
+      {WorkspaceOptions? options}) async {
+    final opts = _mergeOptions(options);
+    final process = await start(shellCommand, options: opts);
+    return _collectResult(process);
+  }
+
+  /// Executes a binary directly and waits for completion.
+  Future<CommandResult> exec(String executable, List<String> args,
+      {WorkspaceOptions? options}) async {
+    final opts = _mergeOptions(options);
+    final process = await spawn(executable, args, options: opts);
+    return _collectResult(process);
+  }
+
+  /// Spawns a shell command as a background process.
+  ///
+  /// Attaches the process to the event bus for real-time logging.
+  Future<WorkspaceProcess> start(String shellCommand,
+      {WorkspaceOptions? options}) async {
+    final opts = _mergeOptions(options);
+    final process = await _launcher.spawnShell(shellCommand, opts);
+
+    _attachToEventBus(process, shellCommand);
+
+    return process;
+  }
+
+  /// Spawns a binary directly as a background process.
+  Future<WorkspaceProcess> spawn(String executable, List<String> args,
+      {WorkspaceOptions? options}) async {
+    final opts = _mergeOptions(options);
+    final process = await _launcher.spawnExec(executable, args, opts);
+
+    _attachToEventBus(process, '$executable ${args.join(" ")}');
+
+    return process;
+  }
+
+  /// Attaches a process to the central event bus.
+  ///
+  /// Emits lifecycle and output events as the process runs.
+  void _attachToEventBus(WorkspaceProcess process, String commandLabel) {
+    int pid = 0;
+    if (process is NativeProcessImpl) {
+      try {
+        pid = (process as dynamic).pid;
+      } catch (_) {
+        pid = process.hashCode;
+      }
+    } else {
+      pid = process.hashCode;
     }
 
+    // Emit started event
+    _eventController.add(ProcessLifecycleEvent(
+      workspaceId: id,
+      pid: pid,
+      command: commandLabel,
+      state: ProcessState.started,
+    ));
+
+    // Forward stdout events
+    process.stdout.listen((data) {
+      _eventController.add(ProcessOutputEvent(
+        workspaceId: id,
+        pid: pid,
+        command: commandLabel,
+        content: data,
+        isError: false,
+      ));
+    });
+
+    // Forward stderr events
+    process.stderr.listen((data) {
+      _eventController.add(ProcessOutputEvent(
+        workspaceId: id,
+        pid: pid,
+        command: commandLabel,
+        content: data,
+        isError: true,
+      ));
+    });
+
+    // Emit stopped event when process exits
+    process.exitCode.then((code) {
+      _eventController.add(ProcessLifecycleEvent(
+        workspaceId: id,
+        pid: pid,
+        command: commandLabel,
+        state: ProcessState.stopped,
+        exitCode: code,
+      ));
+    });
+  }
+
+  /// Merges default options with per-call overrides.
+  WorkspaceOptions _mergeOptions(WorkspaceOptions? override) {
+    if (override == null) return defaultOptions;
+
+    return WorkspaceOptions(
+      timeout: override.timeout ?? defaultOptions.timeout,
+      env: {...defaultOptions.env, ...override.env},
+      includeParentEnv: override.includeParentEnv,
+      cancellationToken:
+          override.cancellationToken ?? defaultOptions.cancellationToken,
+      workingDirectoryOverride: override.workingDirectoryOverride ??
+          defaultOptions.workingDirectoryOverride,
+      sandbox: defaultOptions.sandbox || override.sandbox,
+      allowNetwork: override.allowNetwork,
+    );
+  }
+
+  /// Collects the full output from a process into a [CommandResult].
+  Future<CommandResult> _collectResult(WorkspaceProcess process) async {
     final stdoutBuf = StringBuffer();
     final stderrBuf = StringBuffer();
+    final stopwatch = Stopwatch()..start();
 
-    final outSub = process.stdout.listen(stdoutBuf.write);
-    final errSub = process.stderr.listen(stderrBuf.write);
+    await Future.wait([
+      process.stdout.forEach(stdoutBuf.write),
+      process.stderr.forEach(stderrBuf.write)
+    ]);
 
     final code = await process.exitCode;
+    stopwatch.stop();
 
-    await outSub.cancel();
-    await errSub.cancel();
-
-    // Check if cancelled internally (e.g., timeout)
     bool isCancelled = false;
     if (process is NativeProcessImpl) {
       isCancelled = process.isCancelled;
@@ -66,54 +193,8 @@ class WorkspaceImpl {
       exitCode: code,
       stdout: stdoutBuf.toString(),
       stderr: stderrBuf.toString(),
-      duration: Duration.zero, // TODO: Implement precise duration measurement
+      duration: stopwatch.elapsed,
       isCancelled: isCancelled,
     );
-  }
-
-  /// Starts a new process using the native core and returns a [WorkspaceProcess].
-  ///
-  /// This method performs a security inspection via [SecurityGuard] before
-  /// executing the command. If the command violates the security policy
-  /// (e.g., network access when forbidden), it throws an exception.
-  Future<WorkspaceProcess> start(
-    String commandLine, {
-    WorkspaceOptions? options,
-  }) async {
-    final opts = options ?? _defaultOptions;
-
-    // 1. Security Check (Dart Layer)
-    // Prevents execution of known dangerous commands before they reach the OS.
-    SecurityGuard.inspectCommand(commandLine, opts);
-
-    final workingDirectory = opts.workingDirectoryOverride ?? rootPath;
-    final arena = ffi_helpers.Arena();
-
-    final finalCommandLine = ShellParser.prepareCommand(commandLine);
-
-    try {
-      // 2. Native Execution
-      final handle = FfiBridge.start(
-        finalCommandLine,
-        workingDirectory,
-        opts.sandbox,
-        id,
-        opts.allowNetwork,
-        arena,
-      );
-
-      if (handle.address == 0) {
-        throw Exception(
-          'Native failure: could not start process "$finalCommandLine".',
-        );
-      }
-
-      // 3. Return Wrapped Process
-      // NativeProcessImpl handles the polling loop and resource cleanup.
-      return NativeProcessImpl(handle, arena, timeout: opts.timeout);
-    } catch (e) {
-      arena.releaseAll();
-      rethrow;
-    }
   }
 }

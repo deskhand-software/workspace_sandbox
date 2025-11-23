@@ -1,48 +1,54 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:ffi' as ffi;
-import 'package:ffi/ffi.dart' as ffi_helpers;
-
+import 'dart:io';
 import '../models/workspace_process.dart';
-import 'ffi_bridge.dart';
-import 'native_binding.dart';
 
-/// Concrete [WorkspaceProcess] backed by a native process handle.
+/// Native process implementation that wraps [Process] with stream management.
 ///
-/// Periodically polls native stdout/stderr and completion state using
-/// [FfiBridge], exposing results as Dart streams and futures.
+/// Handles:
+/// - UTF-8 decoding with malformed byte tolerance (for Windows CP850/ANSI)
+/// - Timeout management with graceful and forceful termination
+/// - Broadcast streams for stdout/stderr to allow multiple listeners
 class NativeProcessImpl implements WorkspaceProcess {
-  final ffi.Pointer<ProcessHandle> _handle;
-  final ffi_helpers.Arena _arena;
-
-  final _stdoutCtrl = StreamController<String>();
-  final _stderrCtrl = StreamController<String>();
+  final Process _process;
+  final _stdoutCtrl = StreamController<String>.broadcast();
+  final _stderrCtrl = StreamController<String>.broadcast();
   final _exitCodeCompleter = Completer<int>();
 
-  bool _isCancelled = false;
-  Timer? _pollingTimer;
   Timer? _timeoutTimer;
+  bool _isCancelled = false;
 
-  /// Expose cancellation state for internal checks
-  bool get isCancelled => _isCancelled;
+  /// Creates a native process wrapper with optional timeout.
+  ///
+  /// If [timeout] is provided, the process will be killed automatically
+  /// after the duration elapses.
+  ///
+  /// The stdout/stderr streams are immediately attached and decoded as UTF-8
+  /// with malformed byte tolerance to handle non-Unicode output (e.g.,
+  /// Windows console apps using CP850 encoding).
+  NativeProcessImpl(this._process, {Duration? timeout}) {
+    const decoder = Utf8Decoder(allowMalformed: true);
 
-  NativeProcessImpl(
-    this._handle,
-    this._arena, {
-    Duration? timeout,
-  }) {
-    _startPolling();
+    _process.stdout.transform(decoder).listen((data) => _stdoutCtrl.add(data),
+        onDone: () => _stdoutCtrl.close(),
+        onError: (e) => _stdoutCtrl.add('[Stream Error: $e]'));
+
+    _process.stderr.transform(decoder).listen((data) => _stderrCtrl.add(data),
+        onDone: () => _stderrCtrl.close(),
+        onError: (e) => _stderrCtrl.add('[Stream Error: $e]'));
+
+    _process.exitCode.then((code) {
+      if (!_exitCodeCompleter.isCompleted) {
+        _exitCodeCompleter.complete(code);
+      }
+      _timeoutTimer?.cancel();
+    });
 
     if (timeout != null) {
       _timeoutTimer = Timer(timeout, () {
-        if (_exitCodeCompleter.isCompleted) return;
-
-        // Mark as cancelled explicitly before killing
-        _isCancelled = true;
         kill();
-
         if (!_stderrCtrl.isClosed) {
-          _stderrCtrl.add('\nError: process timeout exceeded.\n');
+          _stderrCtrl.add('\n[timeout]\n');
         }
       });
     }
@@ -58,92 +64,17 @@ class NativeProcessImpl implements WorkspaceProcess {
   Future<int> get exitCode => _exitCodeCompleter.future;
 
   @override
+  bool get isCancelled => _isCancelled;
+
+  @override
   void kill() {
-    if (!_exitCodeCompleter.isCompleted) {
-      _isCancelled = true;
-    }
-    FfiBridge.kill(_handle);
-  }
+    if (_isCancelled) return;
+    _isCancelled = true;
 
-  void _startPolling() {
-    final buffer = ffi_helpers.calloc<ffi.Uint8>(4096);
-    final exitCodePtr = ffi_helpers.calloc<ffi.Int32>();
+    _process.kill(ProcessSignal.sigterm);
 
-    void poll() {
-      if (_exitCodeCompleter.isCompleted) {
-        ffi_helpers.calloc.free(buffer);
-        ffi_helpers.calloc.free(exitCodePtr);
-        return;
-      }
-
-      bool gotData = false;
-
-      void readStream(
-        int Function(
-          ffi.Pointer<ProcessHandle>,
-          ffi.Pointer<ffi.Uint8>,
-          int,
-        ) readFunc,
-        StreamController<String> ctrl,
-      ) {
-        if (ctrl.isClosed) return;
-
-        while (true) {
-          final bytes = readFunc(_handle, buffer, 4096);
-          if (bytes > 0) {
-            gotData = true;
-            ctrl.add(
-              utf8.decode(
-                buffer.asTypedList(bytes),
-                allowMalformed: true,
-              ),
-            );
-          } else {
-            break;
-          }
-        }
-      }
-
-      readStream(FfiBridge.readStdout, _stdoutCtrl);
-      readStream(FfiBridge.readStderr, _stderrCtrl);
-
-      final isAlive = FfiBridge.isRunning(_handle, exitCodePtr);
-
-      if (!isAlive) {
-        // Flush remaining data one last time.
-        readStream(FfiBridge.readStdout, _stdoutCtrl);
-        readStream(FfiBridge.readStderr, _stderrCtrl);
-
-        _finalize(exitCodePtr.value);
-
-        ffi_helpers.calloc.free(buffer);
-        ffi_helpers.calloc.free(exitCodePtr);
-      } else {
-        _pollingTimer = Timer(
-          gotData ? Duration.zero : const Duration(milliseconds: 5),
-          poll,
-        );
-      }
-    }
-
-    poll();
-  }
-
-  void _finalize(int code) {
-    _pollingTimer?.cancel();
-    _timeoutTimer?.cancel();
-
-    FfiBridge.free(_handle);
-    _arena.releaseAll();
-
-    if (!_stdoutCtrl.isClosed) _stdoutCtrl.close();
-    if (!_stderrCtrl.isClosed) _stderrCtrl.close();
-
-    if (!_exitCodeCompleter.isCompleted) {
-      // If manually cancelled or timed out, we might want to reflect that
-      // but we stick to the raw code unless it's confusingly 0.
-      // However, higher layers check isCancelled flag.
-      _exitCodeCompleter.complete(code);
-    }
+    Timer(const Duration(milliseconds: 250), () {
+      _process.kill(ProcessSignal.sigkill);
+    });
   }
 }
