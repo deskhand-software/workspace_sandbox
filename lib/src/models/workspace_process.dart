@@ -14,6 +14,8 @@ abstract class WorkspaceProcess {
   /// Completes when the process exits, yielding its exit code.
   Future<int> get exitCode;
 
+  bool get isCancelled;
+
   /// Attempts to terminate the underlying process.
   ///
   /// On Unix platforms this typically maps to SIGTERM, while on

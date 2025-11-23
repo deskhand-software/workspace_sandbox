@@ -48,3 +48,7 @@ native/**/*.exp
 native/**/*.obj
 native/**/*.o
 native/**/*.a
+
+# Precompiled Libraries
+!native/bin/linux/x64/libworkspace_core.so
+!native/bin/windows/x64/workspace_core.dll

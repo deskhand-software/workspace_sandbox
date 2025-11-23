@@ -1,119 +1,108 @@
 import 'dart:async';
-import 'package:ffi/ffi.dart' as ffi_helpers;
+import 'dart:io';
 
 import 'models/command_result.dart';
 import 'models/workspace_options.dart';
 import 'models/workspace_process.dart';
-import 'native/ffi_bridge.dart';
 import 'native/native_process_impl.dart';
-import 'security/security_guard.dart';
-import 'util/shell_parser.dart';
+import 'core/launcher_service.dart';
+import 'fs/file_system_service.dart';
 
-/// Internal implementation that bridges [Workspace] to the native core.
-///
-/// This class is responsible for orchestrating the security checks and
-/// initiating native processes via FFI. It effectively hides the complexity
-/// of resource management (Arenas, pointers) from the public API.
 class WorkspaceImpl {
-  final String rootPath;
   final String id;
   final WorkspaceOptions _defaultOptions;
 
-  WorkspaceImpl(
-    this.rootPath,
-    this.id, {
-    WorkspaceOptions? options,
-  }) : _defaultOptions = options ?? const WorkspaceOptions();
+  // Composición: Servicios especializados
+  final LauncherService _launcher;
+  final FileSystemService fs; // Público para acceso directo si se requiere
 
-  /// Runs [commandLine] to completion and returns an aggregated [CommandResult].
-  ///
-  /// Captures both stdout and stderr into memory. For long-running processes
-  /// or large outputs, consider using [start] to stream data instead.
-  Future<CommandResult> run(
-    String commandLine, {
-    WorkspaceOptions? options,
-  }) async {
+  WorkspaceImpl(String rootPath, this.id, {WorkspaceOptions? options})
+      : _defaultOptions = options ?? const WorkspaceOptions(),
+        _launcher = LauncherService(rootPath, id),
+        fs = FileSystemService(rootPath);
+
+  String get rootPath => fs.rootPath;
+
+  // --- FILE SYSTEM DELEGATES (Sugar Syntax) ---
+  // Exponemos los métodos del servicio FS directamente para mantener la API limpia
+
+  Future<File> writeFile(String path, String content) =>
+      fs.writeFile(path, content);
+
+  Future<String> readFile(String path) => fs.readFile(path);
+
+  Future<File> writeBytes(String path, List<int> bytes) =>
+      fs.writeBytes(path, bytes);
+
+  Future<List<int>> readBytes(String path) => fs.readBytes(path);
+
+  Future<String> tree({int? maxDepth}) => fs.tree(maxDepth: maxDepth);
+
+  Future<String> grep(String pattern,
+          {bool recursive = true, bool caseSensitive = true}) =>
+      fs.grep(pattern, recursive: recursive, caseSensitive: caseSensitive);
+
+  Future<List<String>> find(String pattern) => fs.find(pattern);
+
+  Future<void> copy(String src, String dest) => fs.copy(src, dest);
+
+  Future<void> move(String src, String dest) => fs.move(src, dest);
+
+  Future<Directory> createDir(String path) => fs.createDir(path);
+
+  Future<void> delete(String path) => fs.delete(path);
+
+  Future<bool> exists(String path) => fs.exists(path);
+
+  Future<void> dispose() async {
+    // Cleanup logic if needed handled by Workspace wrapper usually
+  }
+
+  // --- PROCESS EXECUTION ---
+
+  Future<CommandResult> run(String commandLine,
+      {WorkspaceOptions? options}) async {
     WorkspaceProcess process;
     try {
       process = await start(commandLine, options: options);
     } catch (e) {
       return CommandResult(
-        exitCode: -1,
+        exitCode: 99,
         stdout: '',
-        stderr: 'Failed to start process: $e',
+        stderr: 'Start Error: $e',
         duration: Duration.zero,
       );
     }
 
     final stdoutBuf = StringBuffer();
     final stderrBuf = StringBuffer();
+    final stopwatch = Stopwatch()..start();
 
-    final outSub = process.stdout.listen(stdoutBuf.write);
-    final errSub = process.stderr.listen(stderrBuf.write);
+    // Escuchar ambos streams completamente
+    await Future.wait([
+      process.stdout.forEach(stdoutBuf.write),
+      process.stderr.forEach(stderrBuf.write)
+    ]);
 
     final code = await process.exitCode;
+    stopwatch.stop();
 
-    await outSub.cancel();
-    await errSub.cancel();
-
-    // Check if cancelled internally (e.g., timeout)
-    bool isCancelled = false;
-    if (process is NativeProcessImpl) {
-      isCancelled = process.isCancelled;
-    }
+    bool cancelled =
+        (process is NativeProcessImpl) ? process.isCancelled : (code == -1);
 
     return CommandResult(
       exitCode: code,
       stdout: stdoutBuf.toString(),
       stderr: stderrBuf.toString(),
-      duration: Duration.zero, // TODO: Implement precise duration measurement
-      isCancelled: isCancelled,
+      duration: stopwatch.elapsed,
+      isCancelled: cancelled,
     );
   }
 
-  /// Starts a new process using the native core and returns a [WorkspaceProcess].
-  ///
-  /// This method performs a security inspection via [SecurityGuard] before
-  /// executing the command. If the command violates the security policy
-  /// (e.g., network access when forbidden), it throws an exception.
-  Future<WorkspaceProcess> start(
-    String commandLine, {
-    WorkspaceOptions? options,
-  }) async {
+  Future<WorkspaceProcess> start(String commandLine,
+      {WorkspaceOptions? options}) {
     final opts = options ?? _defaultOptions;
-
-    // 1. Security Check (Dart Layer)
-    // Prevents execution of known dangerous commands before they reach the OS.
-    SecurityGuard.inspectCommand(commandLine, opts);
-
-    final workingDirectory = opts.workingDirectoryOverride ?? rootPath;
-    final arena = ffi_helpers.Arena();
-
-    final finalCommandLine = ShellParser.prepareCommand(commandLine);
-
-    try {
-      // 2. Native Execution
-      final handle = FfiBridge.start(
-        finalCommandLine,
-        workingDirectory,
-        opts.sandbox,
-        id,
-        opts.allowNetwork,
-        arena,
-      );
-
-      if (handle.address == 0) {
-        throw Exception(
-          'Native failure: could not start process "$finalCommandLine".',
-        );
-      }
-
-      // 3. Return Wrapped Process
-      // NativeProcessImpl handles the polling loop and resource cleanup.
-      return NativeProcessImpl(handle, arena, timeout: opts.timeout);
-    } catch (e) {
-      arena.releaseAll();
-      rethrow;
-    }
+    // Delegamos al servicio de lanzamiento que maneja binarios y argumentos
+    return _launcher.spawn(commandLine, opts);
   }
 }

@@ -194,8 +194,8 @@ class Workspace {
 
   /// Generates a visual tree structure of the workspace directory.
   ///
-  /// [maxDepth] controls how deep the traversal goes (default: 2).
-  Future<String> tree({int maxDepth = 2}) async {
+  /// [maxDepth] controls how deep the traversal goes (default: 5).
+  Future<String> tree({int maxDepth = 5}) async {
     return FileSystemHelpers.tree(rootPath, maxDepth: maxDepth);
   }
 
