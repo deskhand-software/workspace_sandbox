@@ -123,9 +123,9 @@ class LauncherService {
   /// Locates the native launcher binary for the current platform.
   ///
   /// Searches in the following order:
-  /// 1. Development build: `native/target/release/workspace_launcher`
-  /// 2. Production build: `bin/<os>/x64/workspace_launcher`
-  /// 3. Package installation: relative to the Dart script location
+  /// 1. Package cache via `.dart_tool/package_config.json` (production)
+  /// 2. Development build: `native/target/release/workspace_launcher`
+  /// 3. Project bin directory: `bin/<os>/x64/workspace_launcher`
   ///
   /// Throws [UnsupportedError] if the current platform is not supported.
   /// Throws [StateError] if the binary cannot be found in any location.
@@ -146,23 +146,64 @@ class LauncherService {
           'Supported platforms: Windows, Linux, macOS');
     }
 
+    final binPath = p.join('bin', osFolder, 'x64', binName);
+    final searchedPaths = <String>[];
+
+    // Strategy 1: Package cache via package_config.json (production)
+    try {
+      final packageConfigPath =
+          p.join(Directory.current.path, '.dart_tool', 'package_config.json');
+      final packageConfigFile = File(packageConfigPath);
+
+      if (await packageConfigFile.exists()) {
+        final configContent = await packageConfigFile.readAsString();
+
+        // Parse JSON manually to avoid dependency
+        final workspaceSandboxMatch = RegExp(
+                r'"name"\s*:\s*"workspace_sandbox"[^}]*"rootUri"\s*:\s*"([^"]+)"')
+            .firstMatch(configContent);
+
+        if (workspaceSandboxMatch != null) {
+          var rootUri = workspaceSandboxMatch.group(1)!;
+
+          // Handle relative paths (e.g., "file://..." or "../..")
+          String packageRoot;
+          if (rootUri.startsWith('file://')) {
+            packageRoot = Uri.parse(rootUri).toFilePath();
+          } else {
+            packageRoot = p.normalize(p.join(
+              p.dirname(packageConfigPath),
+              rootUri,
+            ));
+          }
+
+          final candidateBin = p.join(packageRoot, binPath);
+          searchedPaths.add(candidateBin);
+
+          if (await File(candidateBin).exists()) {
+            return candidateBin;
+          }
+        }
+      }
+    } catch (_) {
+      // package_config.json parsing failed, continue with other strategies
+    }
+
+    // Strategy 2: Development build (local development)
     final devBuild =
         p.join(Directory.current.path, 'native', 'target', 'release', binName);
+    searchedPaths.add(devBuild);
     if (await File(devBuild).exists()) return devBuild;
 
-    final prodBuild =
-        p.join(Directory.current.path, 'bin', osFolder, 'x64', binName);
+    // Strategy 3: Project bin directory (direct path dependency)
+    final prodBuild = p.join(Directory.current.path, binPath);
+    searchedPaths.add(prodBuild);
     if (await File(prodBuild).exists()) return prodBuild;
 
-    final scriptDir = p.dirname(Platform.script.toFilePath());
-    final pkgBuild = p.join(scriptDir, 'bin', osFolder, 'x64', binName);
-    if (await File(pkgBuild).exists()) return pkgBuild;
-
+    // Binary not found in any location
     throw StateError(
         'Launcher binary "$binName" not found. Searched locations:\n'
-        '  1. $devBuild\n'
-        '  2. $prodBuild\n'
-        '  3. $pkgBuild\n'
+        '${searchedPaths.asMap().entries.map((e) => '  ${e.key + 1}. ${e.value}').join('\n')}\n'
         'Ensure the native binaries are built or included in the package.');
   }
 }

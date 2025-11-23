@@ -7,7 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-[0.1.3] - 2025-11-23
+## [0.1.4] - 2025-11-23
+
+### Fixed
+
+- **Critical:** Fixed binary detection when used as pub dependency in Flutter/Dart projects
+- Launcher now correctly resolves package location using `.dart_tool/package_config.json`
+- Binary path resolution works seamlessly in all installation contexts (pub.dev, git, path)
+
+### Changed
+
+- Simplified binary detection to 3 essential strategies:
+  1. Package cache via `package_config.json` (production installations)
+  2. Development build (`native/target/release/`)
+  3. Project bin directory (direct path dependencies)
+- Removed redundant detection methods for cleaner error messages
+- Enhanced error reporting with comprehensive searched paths list
+
+### Technical Details
+
+The launcher now parses `.dart_tool/package_config.json` to reliably locate the package root in pub cache, eliminating the "binary not found" error when installing from pub.dev.
+
+---
+
+## [0.1.3] - 2025-11-23
 ### Fixed
 
 - **Critical:** Fix `.pubignore` excluding `lib/src/native/` directory (caused 80/160 pub points)
@@ -237,5 +260,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+[0.1.4]: https://github.com/deskhand-software/workspace_sandbox/compare/v0.1.3...v0.1.4
+[0.1.3]: https://github.com/deskhand-software/workspace_sandbox/compare/v0.1.2...v0.1.3
+[0.1.2]: https://github.com/deskhand-software/workspace_sandbox/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/deskhand-software/workspace_sandbox/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/deskhand-software/workspace_sandbox/releases/tag/v0.1.0
