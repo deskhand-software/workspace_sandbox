@@ -1,5 +1,5 @@
 # Exclude Rust source code (keep binaries in bin/)
-native/
+/native/
 
 # Exclude temporary build artifacts
 .dart_tool/

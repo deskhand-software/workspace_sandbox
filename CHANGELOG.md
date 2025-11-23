@@ -7,9 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [0.1.2] - 2025-11-23
+[0.1.3] - 2025-11-23
+### Fixed
 
-### 🔥 Breaking Changes
+- **Critical:** Fix `.pubignore` excluding `lib/src/native/` directory (caused 80/160 pub points)
+
+- Update README.md with correct platform support information
+
+- Correct sandboxing documentation (Job Objects vs AppContainer on Windows)
+
+- Update build instructions for Rust binaries
+
+- Add reactive event system documentation
+
+---
+
+## [0.1.2] - 2025-11-23 
+
+> **⚠️ WARNING:** This version has a packaging error that excludes `lib/src/native/` due to incorrect `.pubignore` configuration. The package cannot be analyzed correctly by pub.dev (80/160 points). **Please use 0.1.3 or later.**
 
 **Complete Native Architecture Rewrite**
 - Migrated from FFI + C++ to **pure Rust** standalone binary
