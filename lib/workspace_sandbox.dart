@@ -5,7 +5,6 @@
 /// Seatbelt on macOS) to execute commands in controlled environments.
 ///
 /// ## Features
-///
 /// - **Ephemeral workspaces**: Temporary sandboxed directories that auto-clean
 /// - **Persistent workspaces**: Work on existing project directories
 /// - **Network isolation**: Block network access per workspace
@@ -20,10 +19,12 @@
 /// void main() async {
 ///   final ws = Workspace.ephemeral();
 ///
-///   await ws.writeFile('script.sh', '#!/bin/sh\necho "Hello"');
-///   final result = await ws.run('sh script.sh');
+///   // Shell command (with pipes)
+///   await ws.exec('echo "Hello" | grep Hello');
 ///
-///   print(result.stdout); // "Hello"
+///   // Binary execution (injection-proof)
+///   await ws.exec(['git', 'status']);
+///
 ///   await ws.dispose();
 /// }
 /// ```
@@ -37,11 +38,14 @@ import 'src/models/command_result.dart';
 import 'src/models/workspace_options.dart';
 import 'src/models/workspace_process.dart';
 import 'src/models/workspace_event.dart';
+import 'src/fs/file_system_service.dart';
 
 export 'src/models/command_result.dart';
 export 'src/models/workspace_options.dart';
 export 'src/models/workspace_process.dart';
 export 'src/models/workspace_event.dart';
+export 'src/fs/file_system_service.dart';
+export 'src/core/path_security.dart' show SecurityException;
 
 /// Represents a secure, isolated workspace for executing commands.
 ///
@@ -63,6 +67,11 @@ abstract class Workspace {
   /// This stream is broadcast and can have multiple listeners.
   Stream<WorkspaceEvent> get onEvent;
 
+  /// File system service for managing workspace files and directories.
+  ///
+  /// Provides secure file operations with automatic path validation.
+  FileSystemService get fs;
+
   /// Creates a temporary workspace in the system temp directory.
   ///
   /// The workspace is automatically sandboxed and will be deleted when
@@ -83,7 +92,7 @@ abstract class Workspace {
     final tempDir = Directory.systemTemp.createTempSync('ws_sb_$wsId');
     final secureOpts =
         (options ?? const WorkspaceOptions()).copyWith(sandbox: true);
-    return _WorkspaceDelegate(tempDir, wsId,
+    return WorkspaceImpl(tempDir.path, wsId,
         options: secureOpts, isTemporary: true);
   }
 
@@ -95,7 +104,7 @@ abstract class Workspace {
   /// Example:
   /// ```
   /// final ws = Workspace.at('/path/to/project');
-  /// await ws.run('git status');
+  /// await ws.exec('git status');
   /// await ws.dispose(); // Files are preserved
   /// ```
   ///
@@ -106,149 +115,55 @@ abstract class Workspace {
   factory Workspace.at(String path, {String? id, WorkspaceOptions? options}) {
     final dir = Directory(path);
     if (!dir.existsSync()) dir.createSync(recursive: true);
-    return _WorkspaceDelegate(dir, id ?? _generateId(),
+    return WorkspaceImpl(dir.path, id ?? _generateId(),
         options: options, isTemporary: false);
   }
 
-  @Deprecated('Use Workspace.ephemeral()')
-  factory Workspace.secure({String? id, WorkspaceOptions? options}) =
-      Workspace.ephemeral;
-
-  @Deprecated('Use Workspace.at()')
-  factory Workspace.host(String path, {String? id, WorkspaceOptions? options}) =
-      Workspace.at;
-
   // --- EXECUTION ---
 
-  /// Executes a shell command and waits for completion.
+  /// Executes a command and waits for completion.
   ///
-  /// The command is executed through the system shell (/bin/sh on Unix,
-  /// cmd.exe on Windows), allowing shell features like pipes and redirections.
+  /// **Type Discrimination:**
+  /// - If [command] is a `String`, executes via system shell (`/bin/sh` or `cmd.exe`)
+  ///   allowing pipes, redirections, and shell features.
+  /// - If [command] is a `List<String>`, executes the binary directly without shell
+  ///   interpretation (safer, prevents injection).
   ///
   /// Example:
   /// ```
-  /// final result = await ws.run('ls -la | grep dart');
-  /// print(result.stdout);
+  /// // Shell command (supports pipes)
+  /// final result1 = await ws.exec('ls -la | grep dart');
+  ///
+  /// // Direct binary execution (injection-proof)
+  /// final result2 = await ws.exec(['git', 'commit', '-m', 'feat: new feature']);
   /// ```
   ///
   /// Returns a [CommandResult] with exit code, stdout, stderr, and duration.
-  Future<CommandResult> run(String shellCommand, {WorkspaceOptions? options});
+  Future<CommandResult> exec(Object command, {WorkspaceOptions? options});
 
-  /// Executes a binary directly with explicit arguments.
-  ///
-  /// Unlike [run], this bypasses the shell for better security and avoids
-  /// shell injection vulnerabilities.
-  ///
-  /// Example:
-  /// ```
-  /// final result = await ws.exec('git', ['commit', '-m', 'feat: add feature']);
-  /// ```
-  Future<CommandResult> exec(String executable, List<String> args,
-      {WorkspaceOptions? options});
-
-  /// Spawns a shell command as a background process.
+  /// Spawns a command as a background process with streaming output.
   ///
   /// Returns immediately with a [WorkspaceProcess] handle for streaming
   /// stdout/stderr and waiting for completion.
   ///
+  /// **Type Discrimination:** Same as [exec]
+  /// - `String`: Shell command
+  /// - `List<String>`: Direct binary
+  ///
   /// Example:
   /// ```
-  /// final process = await ws.start('python app.py');
+  /// // Stream shell output
+  /// final process = await ws.execStream('python app.py');
   /// await for (final line in process.stdout) {
   ///   print('Output: $line');
   /// }
+  ///
+  /// // Stream binary output
+  /// final process2 = await ws.execStream(['node', 'server.js']);
+  /// final exitCode = await process2.exitCode;
   /// ```
-  Future<WorkspaceProcess> start(String shellCommand,
+  Future<WorkspaceProcess> execStream(Object command,
       {WorkspaceOptions? options});
-
-  /// Spawns a binary directly as a background process.
-  ///
-  /// Similar to [start] but executes the binary without shell interpretation.
-  ///
-  /// Example:
-  /// ```
-  /// final process = await ws.spawn('node', ['server.js']);
-  /// final exitCode = await process.exitCode;
-  /// ```
-  Future<WorkspaceProcess> spawn(String executable, List<String> args,
-      {WorkspaceOptions? options});
-
-  // --- FILESYSTEM ---
-
-  /// Writes text content to a file in the workspace.
-  ///
-  /// Creates parent directories if they don't exist.
-  ///
-  /// Example:
-  /// ```
-  /// await ws.writeFile('config.json', '{"debug": true}');
-  /// ```
-  Future<File> writeFile(String relativePath, String content);
-
-  /// Reads text content from a file in the workspace.
-  ///
-  /// Throws [FileSystemException] if the file doesn't exist.
-  Future<String> readFile(String relativePath);
-
-  /// Writes binary data to a file in the workspace.
-  Future<File> writeBytes(String relativePath, List<int> bytes);
-
-  /// Reads binary data from a file in the workspace.
-  Future<List<int>> readBytes(String relativePath);
-
-  /// Creates a directory in the workspace.
-  ///
-  /// Creates parent directories recursively if needed.
-  Future<Directory> createDir(String relativePath);
-
-  /// Deletes a file or directory in the workspace.
-  ///
-  /// If the path is a directory, deletes recursively.
-  Future<void> delete(String relativePath);
-
-  /// Checks if a file or directory exists in the workspace.
-  Future<bool> exists(String relativePath);
-
-  // --- OBSERVABILITY ---
-
-  /// Generates a visual tree representation of the workspace.
-  ///
-  /// Parameters:
-  /// - [maxDepth]: Maximum directory depth to traverse (default: 5)
-  ///
-  /// Example output:
-  /// ```
-  /// workspace
-  /// ├── src
-  /// │   └── main.dart
-  /// └── pubspec.yaml
-  /// ```
-  Future<String> tree({int maxDepth = 5});
-
-  /// Searches for a text pattern in workspace files.
-  ///
-  /// Parameters:
-  /// - [pattern]: Regular expression or literal string to search
-  /// - [recursive]: Whether to search subdirectories (default: true)
-  ///
-  /// Returns lines matching the pattern with file paths.
-  Future<String> grep(String pattern, {bool recursive = true});
-
-  /// Finds files matching a glob pattern.
-  ///
-  /// Example:
-  /// ```
-  /// final dartFiles = await ws.find('**/*.dart');
-  /// ```
-  Future<List<String>> find(String pattern);
-
-  /// Copies a file or directory within the workspace.
-  Future<void> copy(String src, String dest);
-
-  /// Moves a file or directory within the workspace.
-  Future<void> move(String src, String dest);
-
-  // --- LIFECYCLE ---
 
   /// Disposes the workspace and cleans up resources.
   ///
@@ -257,89 +172,6 @@ abstract class Workspace {
   ///
   /// Always call this when done with the workspace.
   Future<void> dispose();
-}
-
-/// Internal delegate implementation (not part of public API).
-class _WorkspaceDelegate implements Workspace {
-  final WorkspaceImpl _impl;
-  final Directory _directory;
-  final bool _isTemporary;
-
-  _WorkspaceDelegate(this._directory, String id,
-      {WorkspaceOptions? options, required bool isTemporary})
-      : _isTemporary = isTemporary,
-        _impl = WorkspaceImpl(_directory.path, id, options: options);
-
-  @override
-  String get rootPath => _directory.path;
-
-  @override
-  Stream<WorkspaceEvent> get onEvent => _impl.onEvent;
-
-  @override
-  Future<CommandResult> run(String cmd, {WorkspaceOptions? options}) =>
-      _impl.run(cmd, options: options);
-
-  @override
-  Future<CommandResult> exec(String exe, List<String> args,
-          {WorkspaceOptions? options}) =>
-      _impl.exec(exe, args, options: options);
-
-  @override
-  Future<WorkspaceProcess> start(String cmd, {WorkspaceOptions? options}) =>
-      _impl.start(cmd, options: options);
-
-  @override
-  Future<WorkspaceProcess> spawn(String exe, List<String> args,
-          {WorkspaceOptions? options}) =>
-      _impl.spawn(exe, args, options: options);
-
-  @override
-  Future<File> writeFile(String p, String c) => _impl.fs.writeFile(p, c);
-
-  @override
-  Future<String> readFile(String p) => _impl.fs.readFile(p);
-
-  @override
-  Future<File> writeBytes(String p, List<int> b) => _impl.fs.writeBytes(p, b);
-
-  @override
-  Future<List<int>> readBytes(String p) => _impl.fs.readBytes(p);
-
-  @override
-  Future<Directory> createDir(String p) => _impl.fs.createDir(p);
-
-  @override
-  Future<void> delete(String p) => _impl.fs.delete(p);
-
-  @override
-  Future<bool> exists(String p) => _impl.fs.exists(p);
-
-  @override
-  Future<String> tree({int maxDepth = 5}) => _impl.fs.tree(maxDepth: maxDepth);
-
-  @override
-  Future<String> grep(String pat, {bool recursive = true}) =>
-      _impl.fs.grep(pat, recursive: recursive);
-
-  @override
-  Future<List<String>> find(String pat) => _impl.fs.find(pat);
-
-  @override
-  Future<void> copy(String s, String d) => _impl.fs.copy(s, d);
-
-  @override
-  Future<void> move(String s, String d) => _impl.fs.move(s, d);
-
-  @override
-  Future<void> dispose() async {
-    await _impl.dispose();
-    if (_isTemporary && await _directory.exists()) {
-      try {
-        await _directory.delete(recursive: true);
-      } catch (_) {}
-    }
-  }
 }
 
 /// Generates a random 8-character alphanumeric ID.

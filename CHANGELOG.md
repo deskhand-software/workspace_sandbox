@@ -7,6 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.1.5] - 2025-11-24
+
+### BREAKING CHANGES
+
+- **Unified API:** Replaced multiple execution methods (`run`, `exec`, `start`, `spawn`) with a single, ergonomic `exec(Object command)` and `execStream(Object command)` interface.
+  - Shell commands are now run as `ws.exec('ls -la')`.
+  - Direct (binary) execution is now `ws.exec(['git', 'status'])`.
+  - All streaming/background process APIs use `execStream`.
+- **Filesystem API Refactored:** All file/directory operations now accessed via `ws.fs.*` (e.g., `ws.fs.writeFile(...)`).
+- **Removed:** Methods `run`, `exec`, `start`, `spawn`, `writeFile`, `readFile`, `createDir`, `tree`, etc, from `Workspace`. See README for migration.
+
+### Fixed
+
+- **Security/Bug:** Path traversal vulnerability in `PathSecurity.resolve` fixed (prevents `../../../etc`).
+- **Type Safety:** `WorkspaceProcess` now always exposes the `pid` field. No more dynamic casting required.
+
+### Changed
+
+- Minimalist, intuitive developer experience. See new unified interface and usage in updated README and examples.
+- All core examples and tests migrated to modern facade.
+- Zero runtime API confusion. All parameters named, all operations discoverable via `Workspace` or `ws.fs`.
+- **Dependencies:** Moved `http` package from `dependencies` to `dev_dependencies` (only used in tests).
+
+### Added
+
+- Expanded examples with all main combinations of the new API (shell, binary, streaming, persistent, ephemeral, filesystem, security).
+- Pub score expected: 160/160.
+
+### Migration Guide
+
+- `ws.run(...)` ⟶ `ws.exec(...)`
+- `ws.writeFile(...)` ⟶ `ws.fs.writeFile(...)`
+- `ws.tree()` ⟶ `ws.fs.tree()`
+- Etc. See README or run `dart doc workspace_sandbox`.
+
+---
+
 ## [0.1.4] - 2025-11-23
 
 ### Fixed

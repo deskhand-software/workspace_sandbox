@@ -11,13 +11,13 @@ void main() {
       final ws = Workspace.ephemeral();
       try {
         final filename = 'agent_$index.txt';
-        await ws.writeFile(filename, 'Data $index');
+        await ws.fs.writeFile(filename, 'Data $index');
 
         final cmd = Platform.isWindows ? 'cmd /c echo $index' : 'echo $index';
-        final result = await ws.run(cmd);
+        final result = await ws.exec(cmd);
         expect(result.stdout.trim(), equals('$index'));
 
-        final read = await ws.readFile(filename);
+        final read = await ws.fs.readFile(filename);
         expect(read, equals('Data $index'));
         return true;
       } finally {

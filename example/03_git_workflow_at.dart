@@ -23,24 +23,24 @@ void main() async {
 
   try {
     print('\nStep 1: Initializing Git repository...');
-    await ws.run('git init');
-    await ws.run('git config user.email "agent@bot.com"');
-    await ws.run('git config user.name "Agent Bot"');
+    await ws.exec(['git', 'init']);
+    await ws.exec(['git', 'config', 'user.email', 'agent@bot.com']);
+    await ws.exec(['git', 'config', 'user.name', 'Agent Bot']);
 
     print('\nStep 2: Creating content...');
-    await ws.writeFile(
+    await ws.fs.writeFile(
         'README.md', '# Auto-Generated Project\nManaged by Workspace Sandbox.');
-    await ws.writeFile('src/main.dart', 'void main() { print("Hello"); }');
+    await ws.fs.writeFile('src/main.dart', 'void main() { print("Hello"); }');
 
     print('\nProject Structure:');
-    print(await ws.tree());
+    print(await ws.fs.tree());
 
     print('\nStep 3: Committing changes...');
-    await ws.exec('git', ['add', '.']);
-    await ws.exec('git', ['commit', '-m', 'feat: Initial structure']);
+    await ws.exec(['git', 'add', '.']);
+    await ws.exec(['git', 'commit', '-m', 'feat: Initial structure']);
 
     print('\nStep 4: Verifying Git log...');
-    final log = await ws.run('git log --oneline');
+    final log = await ws.exec(['git', 'log', '--oneline']);
     print('\nGit Log:\n${log.stdout}');
   } catch (e) {
     print('Error: $e');

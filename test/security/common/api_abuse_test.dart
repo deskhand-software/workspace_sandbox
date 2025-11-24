@@ -17,8 +17,8 @@ void main() {
     test('Command Injection via Filename', () async {
       final maliciousFile = 'file.txt; echo INJECTED > /tmp/pwned.txt';
 
-      await ws.writeFile('safe.txt', 'data');
-      await ws.run('cat "$maliciousFile"');
+      await ws.fs.writeFile('safe.txt', 'data');
+      await ws.exec('cat "$maliciousFile"');
 
       final pwnedFile = File('/tmp/pwned.txt');
       if (await pwnedFile.exists()) {
@@ -29,7 +29,7 @@ void main() {
 
     test('Path Traversal via API', () async {
       try {
-        await ws.writeFile('../../../etc/hacked.txt', 'INJECTED');
+        await ws.fs.writeFile('../../../etc/hacked.txt', 'INJECTED');
         fail('API allowed path traversal!');
       } catch (e) {
         expect(e.toString(), contains('escape'));
@@ -40,9 +40,10 @@ void main() {
       final timeout = Duration(seconds: 1);
       final targetSize = 10000;
 
-      final result = await ws.run(
-          'dd if=/dev/zero of=bigfile bs=1M count=$targetSize',
-          options: WorkspaceOptions(timeout: timeout));
+      final result = await ws.exec(
+        'dd if=/dev/zero of=bigfile bs=1M count=$targetSize',
+        options: WorkspaceOptions(timeout: timeout),
+      );
 
       if (result.exitCode == 0) {
         final file = File('${ws.rootPath}/bigfile');
@@ -57,8 +58,10 @@ void main() {
       final cmd = Platform.isWindows ? 'ping -n 10 127.0.0.1' : 'sleep 10';
       final stopwatch = Stopwatch()..start();
 
-      final result = await ws.run(cmd,
-          options: const WorkspaceOptions(timeout: Duration(seconds: 2)));
+      final result = await ws.exec(
+        cmd,
+        options: const WorkspaceOptions(timeout: Duration(seconds: 2)),
+      );
       stopwatch.stop();
 
       expect(stopwatch.elapsed.inMilliseconds, greaterThan(1500));

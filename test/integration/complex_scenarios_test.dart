@@ -13,12 +13,12 @@ void main() {
     tearDown(() async {
       await ws.dispose();
     });
-    test('Full Stack API Build Simulation', () async {
-      await ws.createDir('backend');
-      final buildCmd = Platform.isWindows ? 'cmd /c ver' : 'uname';
-      final res = await ws.run(buildCmd,
-          options: const WorkspaceOptions(workingDirectoryOverride: 'backend'));
 
+    test('Full Stack API Build Simulation', () async {
+      await ws.fs.createDir('backend');
+      final buildCmd = Platform.isWindows ? 'cmd /c ver' : 'uname';
+      final res = await ws.exec(buildCmd,
+          options: const WorkspaceOptions(workingDirectoryOverride: 'backend'));
       expect(res.exitCode, 0);
     });
 
@@ -30,19 +30,19 @@ void main() {
           ? '@echo off\necho DATA > $outputName'
           : '#!/bin/sh\necho "DATA" > $outputName';
 
-      await ws.writeFile(scriptName, scriptContent);
+      await ws.fs.writeFile(scriptName, scriptContent);
 
       if (!Platform.isWindows) {
-        await ws.run('chmod +x $scriptName');
+        await ws.exec('chmod +x $scriptName');
       }
 
       final cmd = Platform.isWindows ? scriptName : './$scriptName';
-      final result = await ws.run(cmd);
+      final result = await ws.exec(cmd);
 
       expect(result.isSuccess, isTrue);
 
       if (result.isSuccess) {
-        final outputFileContent = await ws.readFile(outputName);
+        final outputFileContent = await ws.fs.readFile(outputName);
         expect(outputFileContent.trim(), equals('DATA'));
       }
     });

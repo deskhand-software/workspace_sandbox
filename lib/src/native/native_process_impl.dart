@@ -29,13 +29,17 @@ class NativeProcessImpl implements WorkspaceProcess {
   NativeProcessImpl(this._process, {Duration? timeout}) {
     const decoder = Utf8Decoder(allowMalformed: true);
 
-    _process.stdout.transform(decoder).listen((data) => _stdoutCtrl.add(data),
-        onDone: () => _stdoutCtrl.close(),
-        onError: (e) => _stdoutCtrl.add('[Stream Error: $e]'));
+    _process.stdout.transform(decoder).listen(
+          (data) => _stdoutCtrl.add(data),
+          onDone: () => _stdoutCtrl.close(),
+          onError: (e) => _stdoutCtrl.add('[Stream Error: $e]'),
+        );
 
-    _process.stderr.transform(decoder).listen((data) => _stderrCtrl.add(data),
-        onDone: () => _stderrCtrl.close(),
-        onError: (e) => _stderrCtrl.add('[Stream Error: $e]'));
+    _process.stderr.transform(decoder).listen(
+          (data) => _stderrCtrl.add(data),
+          onDone: () => _stderrCtrl.close(),
+          onError: (e) => _stderrCtrl.add('[Stream Error: $e]'),
+        );
 
     _process.exitCode.then((code) {
       if (!_exitCodeCompleter.isCompleted) {
@@ -62,6 +66,9 @@ class NativeProcessImpl implements WorkspaceProcess {
 
   @override
   Future<int> get exitCode => _exitCodeCompleter.future;
+
+  @override
+  int get pid => _process.pid;
 
   @override
   bool get isCancelled => _isCancelled;

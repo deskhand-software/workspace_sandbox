@@ -14,7 +14,7 @@ void main() async {
 
   try {
     print('\nStep 1: Creating Python script with progressive output...');
-    await ws.writeFile('script.py', '''
+    await ws.fs.writeFile('script.py', '''
 import time
 import sys
 
@@ -31,7 +31,7 @@ print(">>> Done! Result: 42", flush=True)
 ''');
 
     print('\nStep 2: Starting process (real-time stream)...');
-    final python = await ws.start('python3 -u script.py');
+    final python = await ws.execStream(['python3', '-u', 'script.py']);
 
     print('\n--- Output Stream ---');
     await python.stdout.forEach((chunk) {

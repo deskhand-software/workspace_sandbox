@@ -22,7 +22,7 @@ void main() async {
   try {
     print('\nStep 1: Generating binary data (10MB)...');
     final largeData = Uint8List(10 * 1024 * 1024);
-    await ws.writeBytes('raw_data.bin', largeData);
+    await ws.fs.writeBytes('raw_data.bin', largeData);
 
     final fileSize =
         await File('${ws.rootPath}/raw_data.bin').length() / 1024 / 1024;
@@ -30,7 +30,7 @@ void main() async {
 
     print('\nStep 2: Spawning compression process (background)...');
     final zipProcess =
-        await ws.spawn('tar', ['-czf', 'data.tar.gz', 'raw_data.bin']);
+        await ws.execStream(['tar', '-czf', 'data.tar.gz', 'raw_data.bin']);
 
     print('Main thread is free while compressing...');
     await Future.delayed(Duration(seconds: 1));
@@ -40,7 +40,7 @@ void main() async {
     print('Compression finished.');
 
     print('\nStep 3: Verifying compressed file...');
-    if (await ws.exists('data.tar.gz')) {
+    if (await ws.fs.exists('data.tar.gz')) {
       final size = await File('${ws.rootPath}/data.tar.gz').length() / 1024;
       print('Compressed file exists. Size: $size KB');
     } else {

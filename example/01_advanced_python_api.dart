@@ -26,15 +26,21 @@ void main() async {
     print('Installing Django...\n');
 
     if (Platform.isWindows) {
-      await ws.run('python -m venv venv');
-      await ws.exec(r'venv\Scripts\pip', ['install', 'Django']);
-      await ws.exec(r'venv\Scripts\python',
-          ['-m', 'django', 'startproject', 'demo', '.']);
+      await ws.exec(['python', '-m', 'venv', 'venv']);
+      await ws.exec(['venv\\Scripts\\pip', 'install', 'Django']);
+      await ws.exec([
+        'venv\\Scripts\\python',
+        '-m',
+        'django',
+        'startproject',
+        'demo',
+        '.'
+      ]);
     } else {
-      await ws.run('python3 -m venv venv');
-      await ws.exec('venv/bin/pip', ['install', 'Django']);
+      await ws.exec(['python3', '-m', 'venv', 'venv']);
+      await ws.exec(['venv/bin/pip', 'install', 'Django']);
       await ws.exec(
-          'venv/bin/python', ['-m', 'django', 'startproject', 'demo', '.']);
+          ['venv/bin/python', '-m', 'django', 'startproject', 'demo', '.']);
     }
 
     print('\nDjango installed successfully.');

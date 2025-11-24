@@ -17,7 +17,7 @@ void main() async {
   try {
     print('Test 1: Attempting network access (should fail)...');
     final netResult =
-        await ws.run('curl -I https://google.com --connect-timeout 2');
+        await ws.exec('curl -I https://google.com --connect-timeout 2');
 
     if (netResult.exitCode != 0) {
       print('Network blocked successfully.\n');
@@ -30,7 +30,7 @@ void main() async {
         ? r'C:\Windows\System32\drivers\etc\hosts'
         : '/etc/shadow';
     final fsResult =
-        await ws.run(Platform.isWindows ? 'type $target' : 'cat $target');
+        await ws.exec(Platform.isWindows ? 'type $target' : 'cat $target');
 
     if (fsResult.exitCode != 0 || fsResult.stdout.isEmpty) {
       print('File system protected.\n');

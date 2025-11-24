@@ -5,12 +5,12 @@ import 'dart:async';
 /// Provides access to the process's output streams and allows waiting for
 /// completion or manually terminating the process.
 ///
-/// This is returned by [Workspace.start] and [Workspace.spawn] for
-/// background process execution.
+/// This is returned by [Workspace.exec] and [Workspace.execStream] for
+/// process execution.
 ///
 /// Example:
 /// ```
-/// final process = await ws.start('tail -f app.log');
+/// final process = await ws.execStream('tail -f app.log');
 ///
 /// // Stream output in real-time
 /// await for (final line in process.stdout) {
@@ -39,6 +39,12 @@ abstract class WorkspaceProcess {
   /// success and non-zero values indicate errors.
   Future<int> get exitCode;
 
+  /// The operating system process identifier.
+  ///
+  /// Used internally for event correlation and process tracking.
+  /// Returns the PID of the launcher process wrapper.
+  int get pid;
+
   /// Whether the process was cancelled by timeout or manual termination.
   ///
   /// This is `true` if [kill] was called or if the process was terminated
@@ -53,7 +59,7 @@ abstract class WorkspaceProcess {
   ///
   /// Example:
   /// ```
-  /// final process = await ws.start('sleep 100');
+  /// final process = await ws.execStream('sleep 100');
   /// await Future.delayed(Duration(seconds: 2));
   /// process.kill(); // Terminate early
   /// ```

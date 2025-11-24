@@ -1,12 +1,8 @@
 import 'dart:async';
-import 'package:workspace_sandbox/src/models/workspace_process.dart';
-import 'package:workspace_sandbox/src/native/native_process_impl.dart';
+import 'dart:io';
 
-import 'models/command_result.dart';
-import 'models/workspace_options.dart';
-import 'models/workspace_event.dart';
 import 'core/launcher_service.dart';
-import 'fs/file_system_service.dart';
+import '../workspace_sandbox.dart';
 
 /// Internal implementation of the workspace logic.
 ///
@@ -15,22 +11,30 @@ import 'fs/file_system_service.dart';
 /// event bus for reactive logging.
 ///
 /// This class is not part of the public API.
-class WorkspaceImpl {
+class WorkspaceImpl implements Workspace {
   /// Unique identifier for this workspace instance.
   final String id;
 
   /// Default options applied to all commands unless overridden.
   final WorkspaceOptions defaultOptions;
 
+  /// Whether this workspace should be deleted on dispose.
+  final bool isTemporary;
+
+  /// Root directory reference.
+  final Directory _directory;
+
   late final LauncherService _launcher;
 
   /// File system service for managing workspace files.
+  @override
   final FileSystemService fs;
 
   /// Central event bus for broadcasting workspace events.
   final _eventController = StreamController<WorkspaceEvent>.broadcast();
 
   /// Stream of all events happening in this workspace.
+  @override
   Stream<WorkspaceEvent> get onEvent => _eventController.stream;
 
   /// Creates a new workspace implementation.
@@ -39,77 +43,90 @@ class WorkspaceImpl {
   /// - [rootPath]: Absolute path to the workspace root
   /// - [id]: Unique identifier for logging
   /// - [options]: Default configuration for all operations
-  WorkspaceImpl(String rootPath, this.id, {WorkspaceOptions? options})
+  /// - [isTemporary]: Whether to delete the workspace on dispose
+  WorkspaceImpl(String rootPath, this.id,
+      {WorkspaceOptions? options, required this.isTemporary})
       : defaultOptions = options ?? const WorkspaceOptions(),
-        fs = FileSystemService(rootPath) {
+        fs = FileSystemService(rootPath),
+        _directory = Directory(rootPath) {
     _launcher = LauncherService(rootPath, id);
   }
 
   /// Absolute path to the workspace root directory.
+  @override
   String get rootPath => fs.rootPath;
 
   /// Disposes resources and closes the event stream.
+  @override
   Future<void> dispose() async {
     await _eventController.close();
+    if (isTemporary && await _directory.exists()) {
+      try {
+        await _directory.delete(recursive: true);
+      } catch (_) {}
+    }
   }
 
-  /// Executes a shell command and waits for completion.
+  /// Executes a command and waits for completion.
   ///
-  /// Internally uses [start] to connect to the event bus, then collects
-  /// the full output.
-  Future<CommandResult> run(String shellCommand,
+  /// Discriminates between shell (String) and binary (`List<String>`) execution.
+  Future<CommandResult> exec(Object command,
       {WorkspaceOptions? options}) async {
     final opts = _mergeOptions(options);
-    final process = await start(shellCommand, options: opts);
-    return _collectResult(process);
+
+    if (command is String) {
+      // Shell execution
+      final process = await _launcher.spawnShell(command, opts);
+      _attachToEventBus(process, command);
+      return _collectResult(process);
+    } else if (command is List<String>) {
+      // Binary execution
+      if (command.isEmpty) {
+        throw ArgumentError('Command list cannot be empty');
+      }
+      final executable = command.first;
+      final args = command.length > 1 ? command.sublist(1) : <String>[];
+      final process = await _launcher.spawnExec(executable, args, opts);
+      _attachToEventBus(process, command.join(' '));
+      return _collectResult(process);
+    } else {
+      throw ArgumentError(
+          'Command must be String (shell) or List<String> (binary)');
+    }
   }
 
-  /// Executes a binary directly and waits for completion.
-  Future<CommandResult> exec(String executable, List<String> args,
+  /// Spawns a command as a background process with streaming output.
+  @override
+  Future<WorkspaceProcess> execStream(Object command,
       {WorkspaceOptions? options}) async {
     final opts = _mergeOptions(options);
-    final process = await spawn(executable, args, options: opts);
-    return _collectResult(process);
-  }
 
-  /// Spawns a shell command as a background process.
-  ///
-  /// Attaches the process to the event bus for real-time logging.
-  Future<WorkspaceProcess> start(String shellCommand,
-      {WorkspaceOptions? options}) async {
-    final opts = _mergeOptions(options);
-    final process = await _launcher.spawnShell(shellCommand, opts);
-
-    _attachToEventBus(process, shellCommand);
-
-    return process;
-  }
-
-  /// Spawns a binary directly as a background process.
-  Future<WorkspaceProcess> spawn(String executable, List<String> args,
-      {WorkspaceOptions? options}) async {
-    final opts = _mergeOptions(options);
-    final process = await _launcher.spawnExec(executable, args, opts);
-
-    _attachToEventBus(process, '$executable ${args.join(" ")}');
-
-    return process;
+    if (command is String) {
+      // Shell execution
+      final process = await _launcher.spawnShell(command, opts);
+      _attachToEventBus(process, command);
+      return process;
+    } else if (command is List<String>) {
+      // Binary execution
+      if (command.isEmpty) {
+        throw ArgumentError('Command list cannot be empty');
+      }
+      final executable = command.first;
+      final args = command.length > 1 ? command.sublist(1) : <String>[];
+      final process = await _launcher.spawnExec(executable, args, opts);
+      _attachToEventBus(process, command.join(' '));
+      return process;
+    } else {
+      throw ArgumentError(
+          'Command must be String (shell) or List<String> (binary)');
+    }
   }
 
   /// Attaches a process to the central event bus.
   ///
   /// Emits lifecycle and output events as the process runs.
   void _attachToEventBus(WorkspaceProcess process, String commandLabel) {
-    int pid = 0;
-    if (process is NativeProcessImpl) {
-      try {
-        pid = (process as dynamic).pid;
-      } catch (_) {
-        pid = process.hashCode;
-      }
-    } else {
-      pid = process.hashCode;
-    }
+    final pid = process.pid;
 
     // Emit started event
     _eventController.add(ProcessLifecycleEvent(
@@ -184,17 +201,12 @@ class WorkspaceImpl {
     final code = await process.exitCode;
     stopwatch.stop();
 
-    bool isCancelled = false;
-    if (process is NativeProcessImpl) {
-      isCancelled = process.isCancelled;
-    }
-
     return CommandResult(
       exitCode: code,
       stdout: stdoutBuf.toString(),
       stderr: stderrBuf.toString(),
       duration: stopwatch.elapsed,
-      isCancelled: isCancelled,
+      isCancelled: process.isCancelled,
     );
   }
 }

@@ -2,7 +2,7 @@ name: workspace_sandbox
 description: >
   Cross-platform sandboxed workspace manager for running shell commands
   with streaming output and native isolation.
-version: 0.1.4
+version: 0.1.5
 
 repository: https://github.com/deskhand-software/workspace_sandbox
 issue_tracker: https://github.com/deskhand-software/workspace_sandbox/issues
@@ -24,8 +24,8 @@ topics:
 
 dependencies:
   path: ^1.8.0
-  http: ^1.6.0
 
 dev_dependencies:
   lints: ^2.1.1
   test: ^1.26.0
+  http: ^1.6.0

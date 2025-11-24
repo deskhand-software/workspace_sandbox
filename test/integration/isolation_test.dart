@@ -11,7 +11,7 @@ void main() {
 
       try {
         final cmd = 'curl --connect-timeout 2 https://google.com';
-        final result = await ws.run(cmd);
+        final result = await ws.exec(cmd);
 
         if (result.exitCode == 0) {
           fail('Network was accessible!');
@@ -28,7 +28,7 @@ void main() {
 
       try {
         final cmd = 'curl -I https://google.com';
-        final result = await ws.run(cmd);
+        final result = await ws.exec(cmd);
 
         if (result.exitCode != 0) {
           print('Warning: Network enabled but connection failed');
@@ -46,19 +46,19 @@ void main() {
         final userDir = Platform.environment['HOME'] ?? '/home';
         final userName = Platform.environment['USER'] ?? 'unknown';
 
-        final checkDir = await ws.run('ls -d $userDir/$userName');
+        final checkDir = await ws.exec('ls -d $userDir/$userName');
         if (checkDir.exitCode != 0) {
           print('Note: User directory not visible (strict sandbox)');
         }
 
         final sensitiveFile = '$userDir/$userName/.bash_history';
-        final tryRead = await ws.run('cat $sensitiveFile');
+        final tryRead = await ws.exec('cat $sensitiveFile');
 
         if (tryRead.exitCode == 0 && tryRead.stdout.isNotEmpty) {
           fail('CRITICAL: Read access to host sensitive file!');
         }
 
-        final trySsh = await ws.run('ls $userDir/$userName/.ssh');
+        final trySsh = await ws.exec('ls $userDir/$userName/.ssh');
         if (trySsh.exitCode == 0) {
           fail('SECURITY LEAK: .ssh folder visible!');
         }
